@@ -1,0 +1,12 @@
+[project]
+name = "fbd-lab"
+version = "0.1.0"
+description = "Free Body Diagram Laboratory - A PyQt6 canvas for drawing force vectors"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "PyQt6",
+]
+
+[project.scripts]
+fbd-lab = "main:main"
