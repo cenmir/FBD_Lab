@@ -10,3 +10,7 @@ PROJECT.md
 # Virtual environments
 .venv
 PROJECT.md
+models/*
+todo.md
+.agent/workflows/commit_changes.md
+.claude/settings.local.json

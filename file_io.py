@@ -1,14 +1,24 @@
 import base64
 import json
+import struct
 from pathlib import Path
 
 from PyQt6.QtCore import QBuffer, QIODevice
 from PyQt6.QtGui import QPixmap
 
-from canvas import FBDCanvas
-from arrow_item import ArrowItem
+from canvas import FBDCanvas, SessionMetadata
+from arrow_item import ArrowItem, DEFAULT_MAGNITUDE, DEFAULT_FONT_SIZE
 
 FBD_VERSION = 1
+MAGIC_HEADER_V1 = b"FBD_BIN_v1"
+MAGIC_HEADER_V2 = b"FBD_BIN_v2"
+MAGIC_HEADER_V3 = b"FBD_BIN_v3"
+MAGIC_HEADER_V4 = b"FBD_BIN_v4"
+MAGIC_HEADER = b"FBD_BIN_v5"
+ALL_MAGIC_HEADERS = (MAGIC_HEADER, MAGIC_HEADER_V4, MAGIC_HEADER_V3, MAGIC_HEADER_V2, MAGIC_HEADER_V1)
+MAX_IMAGE_BYTES = 100 * 1024 * 1024  # 100 MB sanity limit
+MAX_ARROW_COUNT = 10_000
+MAX_LABEL_BYTES = 10_000
 
 
 def pixmap_to_base64(pixmap: QPixmap) -> str:
@@ -27,21 +37,67 @@ def base64_to_pixmap(data: str) -> QPixmap:
     return pixmap
 
 
+def pixmap_to_bytes(pixmap: QPixmap) -> bytes:
+    """Encode a QPixmap as PNG bytes."""
+    buf = QBuffer()
+    buf.open(QIODevice.OpenModeFlag.WriteOnly)
+    pixmap.save(buf, "PNG")
+    return buf.data().data()
+
+
+def bytes_to_pixmap(data: bytes) -> QPixmap:
+    """Decode PNG bytes to a QPixmap."""
+    pixmap = QPixmap()
+    pixmap.loadFromData(data, "PNG")
+    return pixmap
+
+
+def _read_exact(f, n: int) -> bytes:
+    """Read exactly n bytes from f, raising ValueError if the file is truncated."""
+    data = f.read(n)
+    if len(data) != n:
+        raise ValueError(f"Unexpected end of file (expected {n} bytes, got {len(data)})")
+    return data
+
+
 def save_fbd(canvas: FBDCanvas, file_path: str | Path):
-    """Serialize the canvas state to an .fbd file."""
+    """Serialize the canvas state to a file (JSON or Binary)."""
+    path = Path(file_path)
+    if path.suffix.lower() == ".fbdb":
+        _save_fbd_binary(canvas, path)
+    else:
+        _save_fbd_json(canvas, path)
+
+
+def load_fbd(canvas: FBDCanvas, file_path: str | Path):
+    """Deserialize a file and restore the canvas state (JSON or Binary)."""
+    path = Path(file_path)
+    with open(path, "rb") as f:
+        header = f.read(len(MAGIC_HEADER))
+
+    if header in ALL_MAGIC_HEADERS:
+        _load_fbd_binary(canvas, path)
+    else:
+        _load_fbd_json(canvas, path)
+
+
+def _save_fbd_json(canvas: FBDCanvas, file_path: Path):
     bg_pixmap = canvas.get_background_pixmap()
     data = {
         "version": FBD_VERSION,
         "background_image": pixmap_to_base64(bg_pixmap) if bg_pixmap else None,
         "arrows": canvas.get_arrows_data(),
+        "metadata": canvas.metadata.to_dict(),
     }
-    Path(file_path).write_text(json.dumps(data, indent=2), encoding="utf-8")
+    file_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-def load_fbd(canvas: FBDCanvas, file_path: str | Path):
-    """Deserialize an .fbd file and restore the canvas state."""
-    text = Path(file_path).read_text(encoding="utf-8")
+def _load_fbd_json(canvas: FBDCanvas, file_path: Path):
+    text = file_path.read_text(encoding="utf-8")
     data = json.loads(text)
+
+    # Clear existing state first
+    canvas.clear_arrows()
 
     # Restore background
     bg_data = data.get("background_image")
@@ -51,7 +107,166 @@ def load_fbd(canvas: FBDCanvas, file_path: str | Path):
             canvas.set_background(pixmap)
 
     # Restore arrows
-    canvas.clear_arrows()
     for arrow_data in data.get("arrows", []):
         arrow = ArrowItem.from_dict(arrow_data)
         canvas.add_arrow(arrow)
+
+    # Restore metadata
+    meta_data = data.get("metadata")
+    if meta_data:
+        canvas.metadata = SessionMetadata.from_dict(meta_data)
+
+
+def _save_fbd_binary(canvas: FBDCanvas, file_path: Path):
+    with open(file_path, "wb") as f:
+        f.write(MAGIC_HEADER)
+
+        # Background image
+        bg_pixmap = canvas.get_background_pixmap()
+        if bg_pixmap and not bg_pixmap.isNull():
+            img_bytes = pixmap_to_bytes(bg_pixmap)
+            f.write(struct.pack("<I", len(img_bytes)))
+            f.write(img_bytes)
+        else:
+            f.write(struct.pack("<I", 0))
+
+        # Arrows
+        arrows_data = canvas.get_arrows_data()
+        f.write(struct.pack("<I", len(arrows_data)))
+
+        for arrow in arrows_data:
+            f.write(struct.pack("<4f",
+                arrow["tail"][0], arrow["tail"][1],
+                arrow["head"][0], arrow["head"][1],
+            ))
+            label_bytes = arrow["label_text"].encode("utf-8")
+            f.write(struct.pack("<I", len(label_bytes)))
+            f.write(label_bytes)
+            f.write(struct.pack("?", arrow["label_visible"]))
+            f.write(struct.pack("<2f",
+                arrow["label_offset"][0], arrow["label_offset"][1],
+            ))
+            # v3 fields
+            f.write(struct.pack("<f", arrow["magnitude"]))
+            f.write(struct.pack("?", arrow["show_magnitude"]))
+            f.write(struct.pack("<I", arrow["font_size"]))
+            # v4 fields
+            f.write(struct.pack("?", arrow.get("label_bold", True)))
+            f.write(struct.pack("?", arrow.get("label_italic", True)))
+
+        # v5: Metadata
+        meta = canvas.metadata
+        for s in (meta.machine_username, meta.machine_hostname):
+            s_bytes = s.encode("utf-8")
+            f.write(struct.pack("<I", len(s_bytes)))
+            f.write(s_bytes)
+        f.write(struct.pack("<3d",
+            meta.created_at, meta.last_saved_at, meta.total_edit_seconds))
+        f.write(struct.pack("<4I",
+            meta.session_count, meta.undo_count,
+            meta.total_arrows_created, meta.total_arrows_deleted))
+
+
+def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
+    with open(file_path, "rb") as f:
+        # Read header — support v1 through v5
+        header = _read_exact(f, len(MAGIC_HEADER))
+        version = 5 if header == MAGIC_HEADER else 0
+        if version == 0:
+            f.seek(0)
+            header = _read_exact(f, len(MAGIC_HEADER_V4))
+            if header == MAGIC_HEADER_V4:
+                version = 4
+            elif header == MAGIC_HEADER_V3:
+                version = 3
+            elif header == MAGIC_HEADER_V2:
+                version = 2
+            elif header == MAGIC_HEADER_V1:
+                version = 1
+            else:
+                raise ValueError("Invalid FBD binary file: bad magic header")
+
+        # Clear existing state first
+        canvas.clear_arrows()
+
+        # Background image
+        img_len = struct.unpack("<I", _read_exact(f, 4))[0]
+        if img_len > MAX_IMAGE_BYTES:
+            raise ValueError(f"Image size {img_len} exceeds maximum ({MAX_IMAGE_BYTES})")
+        if img_len > 0:
+            img_bytes = _read_exact(f, img_len)
+            pixmap = bytes_to_pixmap(img_bytes)
+            if not pixmap.isNull():
+                canvas.set_background(pixmap)
+
+        # Arrows
+        arrow_count = struct.unpack("<I", _read_exact(f, 4))[0]
+        if arrow_count > MAX_ARROW_COUNT:
+            raise ValueError(f"Arrow count {arrow_count} exceeds maximum ({MAX_ARROW_COUNT})")
+
+        for _ in range(arrow_count):
+            x1, y1, x2, y2 = struct.unpack("<4f", _read_exact(f, 16))
+            lbl_len = struct.unpack("<I", _read_exact(f, 4))[0]
+            if lbl_len > MAX_LABEL_BYTES:
+                raise ValueError(f"Label size {lbl_len} exceeds maximum ({MAX_LABEL_BYTES})")
+            label_text = _read_exact(f, lbl_len).decode("utf-8")
+            label_visible = struct.unpack("?", _read_exact(f, 1))[0]
+
+            label_offset = [8.0, -8.0]
+            if version >= 2:
+                ox, oy = struct.unpack("<2f", _read_exact(f, 8))
+                label_offset = [ox, oy]
+
+            magnitude = DEFAULT_MAGNITUDE
+            show_magnitude = False
+            font_size = DEFAULT_FONT_SIZE
+            if version >= 3:
+                magnitude = struct.unpack("<f", _read_exact(f, 4))[0]
+                show_magnitude = struct.unpack("?", _read_exact(f, 1))[0]
+                font_size = struct.unpack("<I", _read_exact(f, 4))[0]
+
+            label_bold = True
+            label_italic = True
+            if version >= 4:
+                label_bold = struct.unpack("?", _read_exact(f, 1))[0]
+                label_italic = struct.unpack("?", _read_exact(f, 1))[0]
+
+            arrow = ArrowItem.from_dict({
+                "tail": [x1, y1],
+                "head": [x2, y2],
+                "label_text": label_text,
+                "label_visible": label_visible,
+                "label_offset": label_offset,
+                "magnitude": magnitude,
+                "show_magnitude": show_magnitude,
+                "font_size": font_size,
+                "label_bold": label_bold,
+                "label_italic": label_italic,
+            })
+            canvas.add_arrow(arrow)
+
+        # v5: Metadata
+        if version >= 5:
+            def _read_string() -> str:
+                slen = struct.unpack("<I", _read_exact(f, 4))[0]
+                if slen > MAX_LABEL_BYTES:
+                    raise ValueError(f"Metadata string size {slen} exceeds maximum")
+                return _read_exact(f, slen).decode("utf-8")
+
+            username = _read_string()
+            hostname = _read_string()
+            created_at, last_saved_at, total_edit_seconds = struct.unpack(
+                "<3d", _read_exact(f, 24))
+            session_count, undo_count, arrows_created, arrows_deleted = struct.unpack(
+                "<4I", _read_exact(f, 16))
+            canvas.metadata = SessionMetadata(
+                machine_username=username,
+                machine_hostname=hostname,
+                created_at=created_at,
+                last_saved_at=last_saved_at,
+                total_edit_seconds=total_edit_seconds,
+                session_count=session_count,
+                undo_count=undo_count,
+                total_arrows_created=arrows_created,
+                total_arrows_deleted=arrows_deleted,
+            )

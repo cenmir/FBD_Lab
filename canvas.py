@@ -1,3 +1,5 @@
+import time
+from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 
@@ -5,6 +7,7 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPointF
 from PyQt6.QtGui import (
     QPixmap, QDragEnterEvent, QDropEvent, QKeyEvent,
     QImage, QKeySequence, QMouseEvent, QPen, QColor, QPainter,
+    QUndoStack,
 )
 from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
@@ -12,6 +15,47 @@ from PyQt6.QtWidgets import (
 )
 
 from arrow_item import ArrowItem
+from commands import AddArrowCommand, DeleteArrowCommand, MoveArrowCommand
+
+
+@dataclass
+class SessionMetadata:
+    machine_username: str = ""
+    machine_hostname: str = ""
+    created_at: float = 0.0
+    last_saved_at: float = 0.0
+    total_edit_seconds: float = 0.0
+    session_count: int = 0
+    undo_count: int = 0
+    total_arrows_created: int = 0
+    total_arrows_deleted: int = 0
+
+    def to_dict(self) -> dict:
+        return {
+            "machine_username": self.machine_username,
+            "machine_hostname": self.machine_hostname,
+            "created_at": self.created_at,
+            "last_saved_at": self.last_saved_at,
+            "total_edit_seconds": self.total_edit_seconds,
+            "session_count": self.session_count,
+            "undo_count": self.undo_count,
+            "total_arrows_created": self.total_arrows_created,
+            "total_arrows_deleted": self.total_arrows_deleted,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "SessionMetadata":
+        return cls(
+            machine_username=data.get("machine_username", ""),
+            machine_hostname=data.get("machine_hostname", ""),
+            created_at=data.get("created_at", 0.0),
+            last_saved_at=data.get("last_saved_at", 0.0),
+            total_edit_seconds=data.get("total_edit_seconds", 0.0),
+            session_count=data.get("session_count", 0),
+            undo_count=data.get("undo_count", 0),
+            total_arrows_created=data.get("total_arrows_created", 0),
+            total_arrows_deleted=data.get("total_arrows_deleted", 0),
+        )
 
 
 class ToolMode(Enum):
@@ -31,6 +75,11 @@ class FBDCanvas(QGraphicsView):
         self.setScene(self._scene)
         self._bg_item: QGraphicsPixmapItem | None = None
         self._arrows: list[ArrowItem] = []
+        self._undo_stack: QUndoStack | None = None
+
+        # Session metadata
+        self._metadata = SessionMetadata()
+        self._session_start: float = time.time()
 
         # Tool state
         self._tool = ToolMode.SELECT
@@ -40,6 +89,7 @@ class FBDCanvas(QGraphicsView):
 
         # Body-drag state
         self._dragging_arrow: ArrowItem | None = None
+        self._drag_start_tail: QPointF | None = None
         self._drag_last: QPointF | None = None
 
         # Rendering
@@ -51,6 +101,26 @@ class FBDCanvas(QGraphicsView):
 
         # Notify when scene selection changes
         self._scene.selectionChanged.connect(self._on_scene_selection_changed)
+
+    def _has_undo_stack(self) -> bool:
+        return self._undo_stack is not None
+
+    def set_undo_stack(self, stack: QUndoStack):
+        self._undo_stack = stack
+
+    @property
+    def metadata(self) -> SessionMetadata:
+        return self._metadata
+
+    @metadata.setter
+    def metadata(self, val: SessionMetadata):
+        self._metadata = val
+        self._session_start = time.time()
+
+    def accumulate_session_time(self):
+        now = time.time()
+        self._metadata.total_edit_seconds += now - self._session_start
+        self._session_start = now
 
     def set_tool(self, mode: ToolMode):
         self._tool = mode
@@ -67,12 +137,18 @@ class FBDCanvas(QGraphicsView):
     def set_background(self, pixmap: QPixmap):
         if self._bg_item is not None:
             self._scene.removeItem(self._bg_item)
-        self._bg_item = QGraphicsPixmapItem(pixmap)
-        self._bg_item.setZValue(-1000)
-        self._bg_item.setFlag(QGraphicsPixmapItem.GraphicsItemFlag.ItemIsSelectable, False)
-        self._bg_item.setFlag(QGraphicsPixmapItem.GraphicsItemFlag.ItemIsMovable, False)
-        self._scene.addItem(self._bg_item)
-        self._scene.setSceneRect(self._bg_item.boundingRect())
+            self._bg_item = None
+
+        if not pixmap.isNull():
+            self._bg_item = QGraphicsPixmapItem(pixmap)
+            self._bg_item.setZValue(-1000)
+            self._bg_item.setFlag(QGraphicsPixmapItem.GraphicsItemFlag.ItemIsSelectable, False)
+            self._bg_item.setFlag(QGraphicsPixmapItem.GraphicsItemFlag.ItemIsMovable, False)
+            self._scene.addItem(self._bg_item)
+            self._scene.setSceneRect(self._bg_item.boundingRect())
+        else:
+            self._scene.setSceneRect(0, 0, 800, 600)
+
         self.modified.emit()
 
     def load_background_from_file(self, file_path: str | Path):
@@ -88,15 +164,18 @@ class FBDCanvas(QGraphicsView):
     # --- Arrows ---
 
     def add_arrow(self, arrow: ArrowItem):
-        self._scene.addItem(arrow)
-        arrow.added_to_scene(self._scene)
-        arrow.on_modified = lambda: self.modified.emit()
-        self._arrows.append(arrow)
+        if arrow not in self._arrows:
+            self._scene.addItem(arrow)
+            arrow.added_to_scene(self._scene)
+            arrow.on_modified = lambda: self.modified.emit()
+            if self._has_undo_stack():
+                arrow.on_push_undo = lambda cmd: self._undo_stack.push(cmd)
+            self._arrows.append(arrow)
 
     def remove_arrow(self, arrow: ArrowItem):
-        arrow.removed_from_scene(self._scene)
-        self._scene.removeItem(arrow)
         if arrow in self._arrows:
+            arrow.removed_from_scene(self._scene)
+            self._scene.removeItem(arrow)
             self._arrows.remove(arrow)
 
     def get_arrows_data(self) -> list[dict]:
@@ -130,10 +209,8 @@ class FBDCanvas(QGraphicsView):
         angle = math.degrees(math.atan2(abs(dy), abs(dx)))  # 0=horizontal, 90=vertical
         threshold = FBDCanvas.SNAP_ANGLE_DEG
         if angle <= threshold:
-            # Near horizontal — snap to horizontal
             return QPointF(end.x(), start.y())
         elif angle >= 90 - threshold:
-            # Near vertical — snap to vertical
             return QPointF(start.x(), end.y())
         return end
 
@@ -157,6 +234,7 @@ class FBDCanvas(QGraphicsView):
                 item = self._scene.itemAt(scene_pos, self.transform())
                 if isinstance(item, ArrowItem):
                     self._dragging_arrow = item
+                    self._drag_start_tail = QPointF(item.tail)
                     self._drag_last = scene_pos
                     if not item.isSelected():
                         self._scene.clearSelection()
@@ -206,20 +284,41 @@ class FBDCanvas(QGraphicsView):
                     dy = end.y() - self._draw_start.y()
                     if (dx * dx + dy * dy) > 100:  # min 10px
                         arrow = ArrowItem(self._draw_start, end)
-                        self.add_arrow(arrow)
+                        arrow.label_text = f"F_{len(self._arrows) + 1}"
+                        arrow.label_visible = True
+
+                        if self._has_undo_stack():
+                            cmd = AddArrowCommand(self, arrow)
+                            self._undo_stack.push(cmd)
+                        else:
+                            self.add_arrow(arrow)
+                            self.modified.emit()
+
                         self._scene.clearSelection()
                         arrow.setSelected(True)
                         self.arrow_created.emit(arrow)
-                        self.modified.emit()
                 self._draw_start = None
                 self.set_tool(ToolMode.SELECT)
                 return
 
             # Finish body drag
             if self._dragging_arrow:
+                arrow = self._dragging_arrow
                 self._dragging_arrow = None
                 self._drag_last = None
-                self.modified.emit()
+
+                if self._has_undo_stack() and self._drag_start_tail and arrow.tail != self._drag_start_tail:
+                    # Arrow was already moved during drag. Revert it, then push command
+                    # so QUndoStack.push() → redo() re-applies the move consistently.
+                    current_tail = QPointF(arrow.tail)
+                    original_tail = self._drag_start_tail
+                    arrow.move_by(original_tail - current_tail)
+                    cmd = MoveArrowCommand(arrow, original_tail, current_tail)
+                    self._undo_stack.push(cmd)
+                else:
+                    self.modified.emit()
+
+                self._drag_start_tail = None
                 self.selection_changed.emit()
                 return
 
@@ -254,7 +353,23 @@ class FBDCanvas(QGraphicsView):
 
     # --- Keyboard ---
 
+    def delete_selected(self):
+        arrow = self.get_selected_arrow()
+        if not arrow:
+            return
+        if self._has_undo_stack():
+            cmd = DeleteArrowCommand(self, arrow)
+            self._undo_stack.push(cmd)
+        else:
+            self.remove_arrow(arrow)
+            self.modified.emit()
+            self.selection_changed.emit()
+
     def keyPressEvent(self, event: QKeyEvent):
+        if event.key() == Qt.Key.Key_Backspace:
+            self.delete_selected()
+            return
+
         if event.matches(QKeySequence.StandardKey.Paste):
             clipboard = QApplication.clipboard()
             mime = clipboard.mimeData()
