@@ -1,16 +1,19 @@
 # FBD Lab
 
-A desktop application for drawing **free body diagrams**. Students draw force vectors on a canvas — over a background image of a mechanics problem — and save their work as structured `.fbd` files for grading.
+A desktop application for drawing **free body diagrams**. Students draw force vectors on a canvas — over a background image of a mechanics problem — and save their work for grading.
 
-![FBD1](FBD_Lab.png)
+![FBD Lab](FBD_Lab.png)
 
 ## Features
 
 - **Draw force vectors** — click and drag to create arrows on the canvas
-- **Select and edit** — click arrows to select, drag control points to reposition
-- **Properties panel** — view start/end coordinates, magnitude, and label
+- **Draggable labels** — labels render physics notation (`F_1` → **F**<sub>1</sub>) and can be repositioned independently
+- **Auto-labeling** — new arrows are automatically labeled F₁, F₂, etc.
+- **Select and edit** — click arrows to select, drag control points to resize/reposition
+- **Properties panel** — edit endpoints, magnitude, label text, visibility, font size, bold/italic
+- **Undo/Redo** — full history for all operations (Ctrl+Z / Ctrl+Y)
 - **Background images** — import via File menu, drag-and-drop, or paste from clipboard
-- **Save/Load** — `.fbd` format (JSON with embedded base64 images)
+- **Save/Load** — `.fbdb` binary format
 - **Dirty tracking** — unsaved changes shown with `*` in the title bar, with a save prompt on close
 - **Dark mode** — Fusion palette for comfortable use
 
@@ -27,36 +30,20 @@ uv run main.py
 | Shortcut | Action |
 |---|---|
 | `A` | Toggle arrow creation mode |
+| `Delete` | Delete selected arrow |
+| `Ctrl+Z` | Undo |
+| `Ctrl+Y` | Redo |
 | `Ctrl+S` | Save |
 | `Ctrl+Shift+S` | Save As |
 | `Ctrl+O` | Open |
 | `Ctrl+N` | New |
 | `Ctrl+Q` | Quit |
 
-## File Format
-
-`.fbd` files are human-readable JSON:
-
-```json
-{
-  "version": 1,
-  "background_image": "<base64 or null>",
-  "arrows": [
-    {
-      "tail": [100, 200],
-      "head": [250, 150],
-      "label_text": "F1",
-      "label_visible": true
-    }
-  ]
-}
-```
-
 ## Grading Workflow
 
-1. Instructor provides a problem image and (optionally) a solution `.fbd`
+1. Instructor provides a problem image
 2. Student opens the image in FBD Lab, draws their free body diagram, and saves
-3. The `.fbd` submission is graded — either automatically by comparing vectors against a solution key, or manually by an instructor
+3. The submission is graded — either automatically by comparing vectors against a solution key, or manually by an instructor
 
 ## Project Structure
 
@@ -64,6 +51,8 @@ uv run main.py
 |---|---|
 | `main.py` | Entry point, dark palette, signal wiring |
 | `canvas.py` | `FBDCanvas` (QGraphicsView) — tools, arrow creation, dragging |
-| `arrow_item.py` | `ArrowItem` + `ControlPoint` graphics items |
-| `file_io.py` | `.fbd` save/load |
+| `arrow_item.py` | `ArrowItem` + `ArrowLabel` + `ControlPoint` graphics items |
+| `commands.py` | `QUndoCommand` subclasses for all undoable operations |
+| `file_io.py` | `.fbdb` save/load |
 | `ui/mainwindow.ui` | Qt Designer layout with promoted FBDCanvas |
+| `fonts/` | Bundled Computer Modern Unicode fonts for label rendering |
