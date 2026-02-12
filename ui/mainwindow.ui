@@ -61,9 +61,9 @@
           </property>
           <layout class="QHBoxLayout" name="toolsLayout">
            <item>
-            <widget class="QPushButton" name="arrowToolButton">
+            <widget class="QPushButton" name="vectorToolButton">
              <property name="text">
-              <string>Create Arrow (A)</string>
+              <string>Create Vector (A)</string>
              </property>
              <property name="checkable">
               <bool>true</bool>

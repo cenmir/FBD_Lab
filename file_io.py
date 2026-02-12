@@ -7,7 +7,7 @@ from PyQt6.QtCore import QBuffer, QIODevice
 from PyQt6.QtGui import QPixmap
 
 from canvas import FBDCanvas, SessionMetadata
-from arrow_item import ArrowItem, DEFAULT_MAGNITUDE, DEFAULT_FONT_SIZE
+from vector_item import VectorItem, DEFAULT_MAGNITUDE, DEFAULT_FONT_SIZE
 
 FBD_VERSION = 1
 MAGIC_HEADER_V1 = b"FBD_BIN_v1"
@@ -17,7 +17,7 @@ MAGIC_HEADER_V4 = b"FBD_BIN_v4"
 MAGIC_HEADER = b"FBD_BIN_v5"
 ALL_MAGIC_HEADERS = (MAGIC_HEADER, MAGIC_HEADER_V4, MAGIC_HEADER_V3, MAGIC_HEADER_V2, MAGIC_HEADER_V1)
 MAX_IMAGE_BYTES = 100 * 1024 * 1024  # 100 MB sanity limit
-MAX_ARROW_COUNT = 10_000
+MAX_VECTOR_COUNT = 10_000
 MAX_LABEL_BYTES = 10_000
 
 
@@ -86,7 +86,7 @@ def _save_fbd_json(canvas: FBDCanvas, file_path: Path):
     data = {
         "version": FBD_VERSION,
         "background_image": pixmap_to_base64(bg_pixmap) if bg_pixmap else None,
-        "arrows": canvas.get_arrows_data(),
+        "arrows": canvas.get_vectors_data(),
         "metadata": canvas.metadata.to_dict(),
     }
     file_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -97,7 +97,7 @@ def _load_fbd_json(canvas: FBDCanvas, file_path: Path):
     data = json.loads(text)
 
     # Clear existing state first
-    canvas.clear_arrows()
+    canvas.clear_vectors()
 
     # Restore background
     bg_data = data.get("background_image")
@@ -106,10 +106,10 @@ def _load_fbd_json(canvas: FBDCanvas, file_path: Path):
         if not pixmap.isNull():
             canvas.set_background(pixmap)
 
-    # Restore arrows
-    for arrow_data in data.get("arrows", []):
-        arrow = ArrowItem.from_dict(arrow_data)
-        canvas.add_arrow(arrow)
+    # Restore vectors
+    for vec_data in data.get("arrows", []):
+        vec = VectorItem.from_dict(vec_data)
+        canvas.add_vector(vec)
 
     # Restore metadata
     meta_data = data.get("metadata")
@@ -130,29 +130,29 @@ def _save_fbd_binary(canvas: FBDCanvas, file_path: Path):
         else:
             f.write(struct.pack("<I", 0))
 
-        # Arrows
-        arrows_data = canvas.get_arrows_data()
-        f.write(struct.pack("<I", len(arrows_data)))
+        # Vectors
+        vectors_data = canvas.get_vectors_data()
+        f.write(struct.pack("<I", len(vectors_data)))
 
-        for arrow in arrows_data:
+        for v in vectors_data:
             f.write(struct.pack("<4f",
-                arrow["tail"][0], arrow["tail"][1],
-                arrow["head"][0], arrow["head"][1],
+                v["tail"][0], v["tail"][1],
+                v["head"][0], v["head"][1],
             ))
-            label_bytes = arrow["label_text"].encode("utf-8")
+            label_bytes = v["label_text"].encode("utf-8")
             f.write(struct.pack("<I", len(label_bytes)))
             f.write(label_bytes)
-            f.write(struct.pack("?", arrow["label_visible"]))
+            f.write(struct.pack("?", v["label_visible"]))
             f.write(struct.pack("<2f",
-                arrow["label_offset"][0], arrow["label_offset"][1],
+                v["label_offset"][0], v["label_offset"][1],
             ))
             # v3 fields
-            f.write(struct.pack("<f", arrow["magnitude"]))
-            f.write(struct.pack("?", arrow["show_magnitude"]))
-            f.write(struct.pack("<I", arrow["font_size"]))
+            f.write(struct.pack("<f", v["magnitude"]))
+            f.write(struct.pack("?", v["show_magnitude"]))
+            f.write(struct.pack("<I", v["font_size"]))
             # v4 fields
-            f.write(struct.pack("?", arrow.get("label_bold", True)))
-            f.write(struct.pack("?", arrow.get("label_italic", True)))
+            f.write(struct.pack("?", v.get("label_bold", True)))
+            f.write(struct.pack("?", v.get("label_italic", True)))
 
         # v5: Metadata
         meta = canvas.metadata
@@ -187,7 +187,7 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
                 raise ValueError("Invalid FBD binary file: bad magic header")
 
         # Clear existing state first
-        canvas.clear_arrows()
+        canvas.clear_vectors()
 
         # Background image
         img_len = struct.unpack("<I", _read_exact(f, 4))[0]
@@ -199,12 +199,12 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
             if not pixmap.isNull():
                 canvas.set_background(pixmap)
 
-        # Arrows
-        arrow_count = struct.unpack("<I", _read_exact(f, 4))[0]
-        if arrow_count > MAX_ARROW_COUNT:
-            raise ValueError(f"Arrow count {arrow_count} exceeds maximum ({MAX_ARROW_COUNT})")
+        # Vectors
+        vector_count = struct.unpack("<I", _read_exact(f, 4))[0]
+        if vector_count > MAX_VECTOR_COUNT:
+            raise ValueError(f"Vector count {vector_count} exceeds maximum ({MAX_VECTOR_COUNT})")
 
-        for _ in range(arrow_count):
+        for _ in range(vector_count):
             x1, y1, x2, y2 = struct.unpack("<4f", _read_exact(f, 16))
             lbl_len = struct.unpack("<I", _read_exact(f, 4))[0]
             if lbl_len > MAX_LABEL_BYTES:
@@ -231,7 +231,7 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
                 label_bold = struct.unpack("?", _read_exact(f, 1))[0]
                 label_italic = struct.unpack("?", _read_exact(f, 1))[0]
 
-            arrow = ArrowItem.from_dict({
+            vec = VectorItem.from_dict({
                 "tail": [x1, y1],
                 "head": [x2, y2],
                 "label_text": label_text,
@@ -243,7 +243,7 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
                 "label_bold": label_bold,
                 "label_italic": label_italic,
             })
-            canvas.add_arrow(arrow)
+            canvas.add_vector(vec)
 
         # v5: Metadata
         if version >= 5:

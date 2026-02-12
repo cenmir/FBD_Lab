@@ -10,7 +10,10 @@ from importlib.metadata import version as pkg_version
 from pathlib import Path
 
 from PyQt6.QtCore import QPointF, QSettings
-from PyQt6.QtWidgets import QApplication, QFileDialog, QMessageBox, QMenu
+from PyQt6.QtWidgets import (
+    QApplication, QFileDialog, QMessageBox, QMenu,
+    QToolBar, QSpinBox, QLabel, QWidget, QHBoxLayout,
+)
 from PyQt6.QtGui import (
     QPalette, QColor, QKeySequence, QShortcut, QAction, QPixmap, QIcon,
     QUndoStack, QImage, QPainter,
@@ -18,8 +21,9 @@ from PyQt6.QtGui import (
 from PyQt6 import uic
 
 from canvas import FBDCanvas, ToolMode, SessionMetadata  # noqa: F401 — FBDCanvas needed for uic promotion
+from vector_item import vector_settings
 from commands import (
-    ResizeArrowCommand, ChangeLabelTextCommand, ChangeLabelVisibilityCommand,
+    ResizeVectorCommand, ChangeLabelTextCommand, ChangeLabelVisibilityCommand,
     ChangeMagnitudeCommand, ChangeShowMagnitudeCommand, ChangeFontSizeCommand,
     ChangeLabelBoldCommand, ChangeLabelItalicCommand,
 )
@@ -231,7 +235,7 @@ def main():
         nonlocal current_file
         if not check_unsaved_changes():
             return
-        window.canvas.clear_arrows()
+        window.canvas.clear_vectors()
         window.canvas.set_background(QPixmap())
         _init_new_metadata()
         current_file = None
@@ -325,21 +329,90 @@ def main():
     window.actionOpen.triggered.connect(open_file)
     window.actionExportPNG.triggered.connect(export_png)
 
-    # --- Arrow creation toggle ---
-    def on_arrow_toggle(checked):
+    # --- Vector Settings toolbar ---
+    vector_toolbar = QToolBar("Vector Settings", window)
+    vector_toolbar.setFixedHeight(50)
+    vector_toolbar.setMovable(False)
+    window.addToolBar(vector_toolbar)
+    vector_toolbar.setVisible(False)
+
+    def _make_toolbar_spinbox(label_text: str, value: int, min_val: int, max_val: int):
+        container = QWidget()
+        layout = QHBoxLayout(container)
+        layout.setContentsMargins(6, 0, 6, 0)
+        lbl = QLabel(label_text)
+        sb = QSpinBox()
+        sb.setRange(min_val, max_val)
+        sb.setValue(value)
+        sb.setFixedWidth(60)
+        layout.addWidget(lbl)
+        layout.addWidget(sb)
+        vector_toolbar.addWidget(container)
+        return sb
+
+    def _refresh_all_vectors():
+        for vec in window.canvas.get_vectors():
+            vec.refresh_style()
+
+    sb_shaft = _make_toolbar_spinbox("Shaft:", vector_settings.shaft_thickness, 1, 30)
+    sb_head_len = _make_toolbar_spinbox("Head Length:", vector_settings.arrowhead_length, 4, 60)
+    sb_head_width = _make_toolbar_spinbox("Head Width:", vector_settings.arrowhead_width, 4, 60)
+    sb_notch = _make_toolbar_spinbox("Notch:", vector_settings.arrowhead_notch, 0, 40)
+    sb_outline = _make_toolbar_spinbox("Outline:", vector_settings.arrow_thickness, 0, 10)
+    sb_handle = _make_toolbar_spinbox("Handle:", vector_settings.handle_radius, 2, 20)
+
+    def _on_shaft(v):
+        vector_settings.shaft_thickness = v
+        _refresh_all_vectors()
+
+    def _on_head_len(v):
+        vector_settings.arrowhead_length = v
+        _refresh_all_vectors()
+
+    def _on_head_width(v):
+        vector_settings.arrowhead_width = v
+        _refresh_all_vectors()
+
+    def _on_notch(v):
+        vector_settings.arrowhead_notch = v
+        _refresh_all_vectors()
+
+    def _on_outline(v):
+        vector_settings.arrow_thickness = v
+        _refresh_all_vectors()
+
+    def _on_handle(v):
+        vector_settings.handle_radius = v
+        _refresh_all_vectors()
+
+    sb_shaft.valueChanged.connect(_on_shaft)
+    sb_head_len.valueChanged.connect(_on_head_len)
+    sb_head_width.valueChanged.connect(_on_head_width)
+    sb_notch.valueChanged.connect(_on_notch)
+    sb_outline.valueChanged.connect(_on_outline)
+    sb_handle.valueChanged.connect(_on_handle)
+
+    # "Vector Settings" action in menu bar toggles toolbar directly
+    toggle_toolbar_action = QAction("Vector Settings", window)
+    toggle_toolbar_action.setCheckable(True)
+    toggle_toolbar_action.toggled.connect(vector_toolbar.setVisible)
+    window.menubar.addAction(toggle_toolbar_action)
+
+    # --- Vector creation toggle ---
+    def on_vector_toggle(checked):
         if checked:
-            window.canvas.set_tool(ToolMode.ARROW)
+            window.canvas.set_tool(ToolMode.VECTOR)
         else:
             window.canvas.set_tool(ToolMode.SELECT)
 
-    window.arrowToolButton.toggled.connect(on_arrow_toggle)
+    window.vectorToolButton.toggled.connect(on_vector_toggle)
 
     def on_tool_changed(mode):
-        window.arrowToolButton.blockSignals(True)
-        window.arrowToolButton.setChecked(mode == ToolMode.ARROW)
-        window.arrowToolButton.blockSignals(False)
-        if mode == ToolMode.ARROW:
-            window.statusbar.showMessage("Arrow creation mode — click and drag to draw")
+        window.vectorToolButton.blockSignals(True)
+        window.vectorToolButton.setChecked(mode == ToolMode.VECTOR)
+        window.vectorToolButton.blockSignals(False)
+        if mode == ToolMode.VECTOR:
+            window.statusbar.showMessage("Vector creation mode — click and drag to draw")
         else:
             window.statusbar.showMessage("Ready")
 
@@ -347,9 +420,9 @@ def main():
     window.statusbar.show()
     window.statusbar.showMessage("Ready")
 
-    # "A" shortcut to toggle arrow mode
+    # "A" shortcut to toggle vector mode
     shortcut_a = QShortcut(QKeySequence("A"), window)
-    shortcut_a.activated.connect(lambda: window.arrowToolButton.toggle())
+    shortcut_a.activated.connect(lambda: window.vectorToolButton.toggle())
 
     # Delete action
     window.actionDelete.triggered.connect(window.canvas.delete_selected)
@@ -360,172 +433,172 @@ def main():
     def sync_panel():
         nonlocal _updating_panel
         try:
-            arrow = window.canvas.get_selected_arrow()
+            vec = window.canvas.get_selected_vector()
         except RuntimeError:
             return  # scene already destroyed during shutdown
-        if arrow is None:
+        if vec is None:
             window.propertiesGroupBox.setVisible(False)
             return
 
         window.propertiesGroupBox.setVisible(True)
         _updating_panel = True
-        window.startXSpinBox.setValue(arrow.tail.x())
-        window.startYSpinBox.setValue(arrow.tail.y())
-        window.endXSpinBox.setValue(arrow.head.x())
-        window.endYSpinBox.setValue(arrow.head.y())
-        window.magnitudeSpinBox.setValue(arrow.magnitude)
-        window.showMagnitudeCheckBox.setChecked(arrow.show_magnitude)
-        window.showLabelCheckBox.setChecked(arrow.label_visible)
-        window.labelTextLineEdit.setText(arrow.label_text)
-        window.fontSizeSpinBox.setValue(arrow.font_size)
-        window.boldButton.setChecked(arrow.label_bold)
-        window.italicButton.setChecked(arrow.label_italic)
+        window.startXSpinBox.setValue(vec.tail.x())
+        window.startYSpinBox.setValue(vec.tail.y())
+        window.endXSpinBox.setValue(vec.head.x())
+        window.endYSpinBox.setValue(vec.head.y())
+        window.magnitudeSpinBox.setValue(vec.magnitude)
+        window.showMagnitudeCheckBox.setChecked(vec.show_magnitude)
+        window.showLabelCheckBox.setChecked(vec.label_visible)
+        window.labelTextLineEdit.setText(vec.label_text)
+        window.fontSizeSpinBox.setValue(vec.font_size)
+        window.boldButton.setChecked(vec.label_bold)
+        window.italicButton.setChecked(vec.label_italic)
         _updating_panel = False
 
     window.propertiesGroupBox.setVisible(False)
     window.propertiesGroupBox.setEnabled(True)
     window.canvas.selection_changed.connect(sync_panel)
-    window.canvas.arrow_created.connect(lambda _: sync_panel())
+    window.canvas.vector_created.connect(lambda _: sync_panel())
 
     # --- Properties panel write-back ---
 
-    def _push_resize(arrow, old_tail, old_head, new_tail, new_head):
-        """Push a resize command, reverting arrow first for consistent redo."""
-        arrow.set_tail(old_tail)
-        arrow.set_head(old_head)
-        cmd = ResizeArrowCommand(arrow, old_tail, old_head, new_tail, new_head)
+    def _push_resize(vec, old_tail, old_head, new_tail, new_head):
+        """Push a resize command, reverting vector first for consistent redo."""
+        vec.set_tail(old_tail)
+        vec.set_head(old_head)
+        cmd = ResizeVectorCommand(vec, old_tail, old_head, new_tail, new_head)
         undo_stack.push(cmd)
 
     def on_start_x_changed(val):
         if _updating_panel:
             return
-        arrow = window.canvas.get_selected_arrow()
-        if arrow is None:
+        vec = window.canvas.get_selected_vector()
+        if vec is None:
             return
-        old_tail, old_head = arrow.tail, arrow.head
+        old_tail, old_head = vec.tail, vec.head
         new_tail = QPointF(val, old_tail.y())
-        _push_resize(arrow, old_tail, old_head, new_tail, old_head)
+        _push_resize(vec, old_tail, old_head, new_tail, old_head)
 
     def on_start_y_changed(val):
         if _updating_panel:
             return
-        arrow = window.canvas.get_selected_arrow()
-        if arrow is None:
+        vec = window.canvas.get_selected_vector()
+        if vec is None:
             return
-        old_tail, old_head = arrow.tail, arrow.head
+        old_tail, old_head = vec.tail, vec.head
         new_tail = QPointF(old_tail.x(), val)
-        _push_resize(arrow, old_tail, old_head, new_tail, old_head)
+        _push_resize(vec, old_tail, old_head, new_tail, old_head)
 
     def on_end_x_changed(val):
         if _updating_panel:
             return
-        arrow = window.canvas.get_selected_arrow()
-        if arrow is None:
+        vec = window.canvas.get_selected_vector()
+        if vec is None:
             return
-        old_tail, old_head = arrow.tail, arrow.head
+        old_tail, old_head = vec.tail, vec.head
         new_head = QPointF(val, old_head.y())
-        _push_resize(arrow, old_tail, old_head, old_tail, new_head)
+        _push_resize(vec, old_tail, old_head, old_tail, new_head)
 
     def on_end_y_changed(val):
         if _updating_panel:
             return
-        arrow = window.canvas.get_selected_arrow()
-        if arrow is None:
+        vec = window.canvas.get_selected_vector()
+        if vec is None:
             return
-        old_tail, old_head = arrow.tail, arrow.head
+        old_tail, old_head = vec.tail, vec.head
         new_head = QPointF(old_head.x(), val)
-        _push_resize(arrow, old_tail, old_head, old_tail, new_head)
+        _push_resize(vec, old_tail, old_head, old_tail, new_head)
 
     def on_label_text_changed():
         if _updating_panel:
             return
-        arrow = window.canvas.get_selected_arrow()
-        if arrow is None:
+        vec = window.canvas.get_selected_vector()
+        if vec is None:
             return
         new_text = window.labelTextLineEdit.text()
-        if new_text == arrow.label_text:
+        if new_text == vec.label_text:
             return
-        old_text = arrow.label_text
-        arrow.label_text = old_text  # revert for consistent redo
-        cmd = ChangeLabelTextCommand(arrow, old_text, new_text)
+        old_text = vec.label_text
+        vec.label_text = old_text  # revert for consistent redo
+        cmd = ChangeLabelTextCommand(vec, old_text, new_text)
         undo_stack.push(cmd)
 
     def on_show_label_toggled(checked):
         if _updating_panel:
             return
-        arrow = window.canvas.get_selected_arrow()
-        if arrow is None:
+        vec = window.canvas.get_selected_vector()
+        if vec is None:
             return
-        if checked == arrow.label_visible:
+        if checked == vec.label_visible:
             return
-        old_vis = arrow.label_visible
-        arrow.label_visible = old_vis  # revert for consistent redo
-        cmd = ChangeLabelVisibilityCommand(arrow, old_vis, checked)
+        old_vis = vec.label_visible
+        vec.label_visible = old_vis  # revert for consistent redo
+        cmd = ChangeLabelVisibilityCommand(vec, old_vis, checked)
         undo_stack.push(cmd)
 
     def on_magnitude_changed(val):
         if _updating_panel:
             return
-        arrow = window.canvas.get_selected_arrow()
-        if arrow is None:
+        vec = window.canvas.get_selected_vector()
+        if vec is None:
             return
-        if val == arrow.magnitude:
+        if val == vec.magnitude:
             return
-        old_mag = arrow.magnitude
-        arrow.magnitude = old_mag  # revert for consistent redo
-        cmd = ChangeMagnitudeCommand(arrow, old_mag, val)
+        old_mag = vec.magnitude
+        vec.magnitude = old_mag  # revert for consistent redo
+        cmd = ChangeMagnitudeCommand(vec, old_mag, val)
         undo_stack.push(cmd)
 
     def on_show_magnitude_toggled(checked):
         if _updating_panel:
             return
-        arrow = window.canvas.get_selected_arrow()
-        if arrow is None:
+        vec = window.canvas.get_selected_vector()
+        if vec is None:
             return
-        if checked == arrow.show_magnitude:
+        if checked == vec.show_magnitude:
             return
-        old_val = arrow.show_magnitude
-        arrow.show_magnitude = old_val  # revert for consistent redo
-        cmd = ChangeShowMagnitudeCommand(arrow, old_val, checked)
+        old_val = vec.show_magnitude
+        vec.show_magnitude = old_val  # revert for consistent redo
+        cmd = ChangeShowMagnitudeCommand(vec, old_val, checked)
         undo_stack.push(cmd)
 
     def on_font_size_changed(val):
         if _updating_panel:
             return
-        arrow = window.canvas.get_selected_arrow()
-        if arrow is None:
+        vec = window.canvas.get_selected_vector()
+        if vec is None:
             return
-        if val == arrow.font_size:
+        if val == vec.font_size:
             return
-        old_size = arrow.font_size
-        arrow.font_size = old_size  # revert for consistent redo
-        cmd = ChangeFontSizeCommand(arrow, old_size, val)
+        old_size = vec.font_size
+        vec.font_size = old_size  # revert for consistent redo
+        cmd = ChangeFontSizeCommand(vec, old_size, val)
         undo_stack.push(cmd)
 
     def on_bold_toggled(checked):
         if _updating_panel:
             return
-        arrow = window.canvas.get_selected_arrow()
-        if arrow is None:
+        vec = window.canvas.get_selected_vector()
+        if vec is None:
             return
-        if checked == arrow.label_bold:
+        if checked == vec.label_bold:
             return
-        old_val = arrow.label_bold
-        arrow.label_bold = old_val  # revert for consistent redo
-        cmd = ChangeLabelBoldCommand(arrow, old_val, checked)
+        old_val = vec.label_bold
+        vec.label_bold = old_val  # revert for consistent redo
+        cmd = ChangeLabelBoldCommand(vec, old_val, checked)
         undo_stack.push(cmd)
 
     def on_italic_toggled(checked):
         if _updating_panel:
             return
-        arrow = window.canvas.get_selected_arrow()
-        if arrow is None:
+        vec = window.canvas.get_selected_vector()
+        if vec is None:
             return
-        if checked == arrow.label_italic:
+        if checked == vec.label_italic:
             return
-        old_val = arrow.label_italic
-        arrow.label_italic = old_val  # revert for consistent redo
-        cmd = ChangeLabelItalicCommand(arrow, old_val, checked)
+        old_val = vec.label_italic
+        vec.label_italic = old_val  # revert for consistent redo
+        cmd = ChangeLabelItalicCommand(vec, old_val, checked)
         undo_stack.push(cmd)
 
     window.startXSpinBox.valueChanged.connect(on_start_x_changed)

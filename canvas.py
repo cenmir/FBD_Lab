@@ -14,8 +14,8 @@ from PyQt6.QtWidgets import (
     QGraphicsLineItem, QApplication,
 )
 
-from arrow_item import ArrowItem
-from commands import AddArrowCommand, DeleteArrowCommand, MoveArrowCommand
+from vector_item import VectorItem
+from commands import AddVectorCommand, DeleteVectorCommand, MoveVectorCommand
 
 
 @dataclass
@@ -60,12 +60,12 @@ class SessionMetadata:
 
 class ToolMode(Enum):
     SELECT = auto()
-    ARROW = auto()
+    VECTOR = auto()
 
 
 class FBDCanvas(QGraphicsView):
-    arrow_created = pyqtSignal(object)    # emits the new ArrowItem
-    selection_changed = pyqtSignal()       # emits when selected arrow changes
+    vector_created = pyqtSignal(object)    # emits the new VectorItem
+    selection_changed = pyqtSignal()       # emits when selected vector changes
     tool_changed = pyqtSignal(object)      # emits new ToolMode
     modified = pyqtSignal()                # emits when content changes (dirty flag)
 
@@ -74,7 +74,7 @@ class FBDCanvas(QGraphicsView):
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
         self._bg_item: QGraphicsPixmapItem | None = None
-        self._arrows: list[ArrowItem] = []
+        self._vectors: list[VectorItem] = []
         self._undo_stack: QUndoStack | None = None
 
         # Session metadata
@@ -88,7 +88,7 @@ class FBDCanvas(QGraphicsView):
         self._preview_line: QGraphicsLineItem | None = None
 
         # Body-drag state
-        self._dragging_arrow: ArrowItem | None = None
+        self._dragging_vector: VectorItem | None = None
         self._drag_start_tail: QPointF | None = None
         self._drag_last: QPointF | None = None
 
@@ -127,7 +127,7 @@ class FBDCanvas(QGraphicsView):
         if mode == ToolMode.SELECT:
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.setCursor(Qt.CursorShape.ArrowCursor)
-        elif mode == ToolMode.ARROW:
+        elif mode == ToolMode.VECTOR:
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.setCursor(Qt.CursorShape.CrossCursor)
         self.tool_changed.emit(mode)
@@ -161,35 +161,38 @@ class FBDCanvas(QGraphicsView):
             return self._bg_item.pixmap()
         return None
 
-    # --- Arrows ---
+    # --- Vectors ---
 
-    def add_arrow(self, arrow: ArrowItem):
-        if arrow not in self._arrows:
-            self._scene.addItem(arrow)
-            arrow.added_to_scene(self._scene)
-            arrow.on_modified = lambda: self.modified.emit()
+    def add_vector(self, vec: VectorItem):
+        if vec not in self._vectors:
+            self._scene.addItem(vec)
+            vec.added_to_scene(self._scene)
+            vec.on_modified = lambda: self.modified.emit()
             if self._has_undo_stack():
-                arrow.on_push_undo = lambda cmd: self._undo_stack.push(cmd)
-            self._arrows.append(arrow)
+                vec.on_push_undo = lambda cmd: self._undo_stack.push(cmd)
+            self._vectors.append(vec)
 
-    def remove_arrow(self, arrow: ArrowItem):
-        if arrow in self._arrows:
-            arrow.removed_from_scene(self._scene)
-            self._scene.removeItem(arrow)
-            self._arrows.remove(arrow)
+    def remove_vector(self, vec: VectorItem):
+        if vec in self._vectors:
+            vec.removed_from_scene(self._scene)
+            self._scene.removeItem(vec)
+            self._vectors.remove(vec)
 
-    def get_arrows_data(self) -> list[dict]:
-        return [a.to_dict() for a in self._arrows]
+    def get_vectors(self) -> list[VectorItem]:
+        return list(self._vectors)
 
-    def get_selected_arrow(self) -> ArrowItem | None:
+    def get_vectors_data(self) -> list[dict]:
+        return [a.to_dict() for a in self._vectors]
+
+    def get_selected_vector(self) -> VectorItem | None:
         for item in self._scene.selectedItems():
-            if isinstance(item, ArrowItem):
+            if isinstance(item, VectorItem):
                 return item
         return None
 
-    def clear_arrows(self):
-        for arrow in list(self._arrows):
-            self.remove_arrow(arrow)
+    def clear_vectors(self):
+        for vec in list(self._vectors):
+            self.remove_vector(vec)
 
     # --- Snapping ---
 
@@ -218,8 +221,8 @@ class FBDCanvas(QGraphicsView):
 
     def mousePressEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
-            # Arrow creation mode
-            if self._tool == ToolMode.ARROW:
+            # Vector creation mode
+            if self._tool == ToolMode.VECTOR:
                 self._drawing = True
                 self._draw_start = self.mapToScene(event.pos())
                 self._preview_line = QGraphicsLineItem()
@@ -228,12 +231,12 @@ class FBDCanvas(QGraphicsView):
                 self._scene.addItem(self._preview_line)
                 return
 
-            # Select mode — check if clicking on an arrow body for dragging
+            # Select mode — check if clicking on a vector body for dragging
             if self._tool == ToolMode.SELECT:
                 scene_pos = self.mapToScene(event.pos())
                 item = self._scene.itemAt(scene_pos, self.transform())
-                if isinstance(item, ArrowItem):
-                    self._dragging_arrow = item
+                if isinstance(item, VectorItem):
+                    self._dragging_vector = item
                     self._drag_start_tail = QPointF(item.tail)
                     self._drag_last = scene_pos
                     if not item.isSelected():
@@ -244,7 +247,7 @@ class FBDCanvas(QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        # Arrow creation preview
+        # Vector creation preview
         if self._drawing and self._preview_line and self._draw_start:
             end = self.mapToScene(event.pos())
             snap = not (event.modifiers() & Qt.KeyboardModifier.ControlModifier)
@@ -256,10 +259,10 @@ class FBDCanvas(QGraphicsView):
             return
 
         # Body drag
-        if self._dragging_arrow and self._drag_last:
+        if self._dragging_vector and self._drag_last:
             scene_pos = self.mapToScene(event.pos())
             delta = scene_pos - self._drag_last
-            self._dragging_arrow.move_by(delta)
+            self._dragging_vector.move_by(delta)
             self._drag_last = scene_pos
             return
 
@@ -267,7 +270,7 @@ class FBDCanvas(QGraphicsView):
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
-            # Finish arrow creation
+            # Finish vector creation
             if self._drawing:
                 self._drawing = False
                 end = self.mapToScene(event.pos())
@@ -283,37 +286,37 @@ class FBDCanvas(QGraphicsView):
                     dx = end.x() - self._draw_start.x()
                     dy = end.y() - self._draw_start.y()
                     if (dx * dx + dy * dy) > 100:  # min 10px
-                        arrow = ArrowItem(self._draw_start, end)
-                        arrow.label_text = f"F_{len(self._arrows) + 1}"
-                        arrow.label_visible = True
+                        vec = VectorItem(self._draw_start, end)
+                        vec.label_text = f"F_{len(self._vectors) + 1}"
+                        vec.label_visible = True
 
                         if self._has_undo_stack():
-                            cmd = AddArrowCommand(self, arrow)
+                            cmd = AddVectorCommand(self, vec)
                             self._undo_stack.push(cmd)
                         else:
-                            self.add_arrow(arrow)
+                            self.add_vector(vec)
                             self.modified.emit()
 
                         self._scene.clearSelection()
-                        arrow.setSelected(True)
-                        self.arrow_created.emit(arrow)
+                        vec.setSelected(True)
+                        self.vector_created.emit(vec)
                 self._draw_start = None
                 self.set_tool(ToolMode.SELECT)
                 return
 
             # Finish body drag
-            if self._dragging_arrow:
-                arrow = self._dragging_arrow
-                self._dragging_arrow = None
+            if self._dragging_vector:
+                vec = self._dragging_vector
+                self._dragging_vector = None
                 self._drag_last = None
 
-                if self._has_undo_stack() and self._drag_start_tail and arrow.tail != self._drag_start_tail:
-                    # Arrow was already moved during drag. Revert it, then push command
+                if self._has_undo_stack() and self._drag_start_tail and vec.tail != self._drag_start_tail:
+                    # Vector was already moved during drag. Revert it, then push command
                     # so QUndoStack.push() → redo() re-applies the move consistently.
-                    current_tail = QPointF(arrow.tail)
+                    current_tail = QPointF(vec.tail)
                     original_tail = self._drag_start_tail
-                    arrow.move_by(original_tail - current_tail)
-                    cmd = MoveArrowCommand(arrow, original_tail, current_tail)
+                    vec.move_by(original_tail - current_tail)
+                    cmd = MoveVectorCommand(vec, original_tail, current_tail)
                     self._undo_stack.push(cmd)
                 else:
                     self.modified.emit()
@@ -354,14 +357,14 @@ class FBDCanvas(QGraphicsView):
     # --- Keyboard ---
 
     def delete_selected(self):
-        arrow = self.get_selected_arrow()
-        if not arrow:
+        vec = self.get_selected_vector()
+        if not vec:
             return
         if self._has_undo_stack():
-            cmd = DeleteArrowCommand(self, arrow)
+            cmd = DeleteVectorCommand(self, vec)
             self._undo_stack.push(cmd)
         else:
-            self.remove_arrow(arrow)
+            self.remove_vector(vec)
             self.modified.emit()
             self.selection_changed.emit()
 

@@ -1,5 +1,6 @@
 import math
 import re
+from dataclasses import dataclass
 from pathlib import Path
 
 from PyQt6.QtCore import QPointF, Qt
@@ -15,16 +16,23 @@ from PyQt6.QtWidgets import (
 
 SNAP_ANGLE_DEG = 5
 
-ARROW_COLOR = QColor(220, 50, 50)
+VECTOR_COLOR = QColor(220, 50, 50)
 SELECTED_COLOR = QColor(50, 150, 255)
 LABEL_COLOR = QColor(0, 0, 0)
-ARROW_THICKNESS = 1
-SHAFT_THICKNESS = 6
-HANDLE_RADIUS = 6
-ARROWHEAD_LENGTH = 22
-ARROWHEAD_WIDTH = 20
-ARROWHEAD_NOTCH = 8  # stealth notch depth (0 = flat triangle)
 DEFAULT_LABEL_OFFSET = QPointF(8, -8)
+
+
+@dataclass
+class VectorSettings:
+    arrow_thickness: int = 1
+    shaft_thickness: int = 6
+    handle_radius: int = 6
+    arrowhead_length: int = 22
+    arrowhead_width: int = 20
+    arrowhead_notch: int = 8  # stealth notch depth (0 = flat triangle)
+
+
+vector_settings = VectorSettings()  # global singleton
 DEFAULT_MAGNITUDE = 100.0
 DEFAULT_FONT_SIZE = 22
 
@@ -97,12 +105,12 @@ def _format_sig_figs(value: float, figs: int = 3) -> str:
     return f"{value:.{figs}g}"
 
 
-class ArrowLabel(QGraphicsTextItem):
-    """Draggable label attached to an arrow, rendered with HTML formatting."""
+class VectorLabel(QGraphicsTextItem):
+    """Draggable label attached to a vector, rendered with HTML formatting."""
 
-    def __init__(self, arrow: "ArrowItem"):
+    def __init__(self, vec: "VectorItem"):
         super().__init__()
-        self._arrow = arrow
+        self._vec = vec
         self._drag_old_offset: QPointF | None = None
         self._updating = False  # guard against itemChange feedback loop
 
@@ -116,14 +124,14 @@ class ArrowLabel(QGraphicsTextItem):
         self.setFont(get_cm_font(size))
 
     def update_display(self):
-        """Rebuild the HTML from the parent arrow's current state."""
-        arrow = self._arrow
-        html = label_to_html(arrow._label_text, arrow._label_bold, arrow._label_italic)
-        if arrow._show_magnitude and html:
-            mag_str = _format_sig_figs(arrow._magnitude)
+        """Rebuild the HTML from the parent vector's current state."""
+        vec = self._vec
+        html = label_to_html(vec._label_text, vec._label_bold, vec._label_italic)
+        if vec._show_magnitude and html:
+            mag_str = _format_sig_figs(vec._magnitude)
             html += f" = {mag_str}"
-        elif arrow._show_magnitude:
-            mag_str = _format_sig_figs(arrow._magnitude)
+        elif vec._show_magnitude:
+            mag_str = _format_sig_figs(vec._magnitude)
             html = f"<b>{mag_str}</b>"
         self.setHtml(html)
 
@@ -134,25 +142,25 @@ class ArrowLabel(QGraphicsTextItem):
         self.update_display()
 
     def update_position(self):
-        """Reposition label at arrow midpoint + offset."""
+        """Reposition label at vector midpoint + offset."""
         self._updating = True
-        mid = (self._arrow._tail + self._arrow._head) / 2
-        self.setPos(mid + self._arrow._label_offset)
+        mid = (self._vec._tail + self._vec._head) / 2
+        self.setPos(mid + self._vec._label_offset)
         self._updating = False
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged and not self._updating:
-            mid = (self._arrow._tail + self._arrow._head) / 2
-            self._arrow._label_offset = value - mid
+            mid = (self._vec._tail + self._vec._head) / 2
+            self._vec._label_offset = value - mid
         return super().itemChange(change, value)
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent):
-        self._drag_old_offset = QPointF(self._arrow._label_offset)
-        # Select the parent arrow when clicking the label
-        if not self._arrow.isSelected():
+        self._drag_old_offset = QPointF(self._vec._label_offset)
+        # Select the parent vector when clicking the label
+        if not self._vec.isSelected():
             if self.scene():
                 self.scene().clearSelection()
-            self._arrow.setSelected(True)
+            self._vec.setSelected(True)
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent):
@@ -161,32 +169,32 @@ class ArrowLabel(QGraphicsTextItem):
         if self._drag_old_offset is None:
             return
 
-        new_offset = QPointF(self._arrow._label_offset)
+        new_offset = QPointF(self._vec._label_offset)
         old_offset = self._drag_old_offset
         self._drag_old_offset = None
 
         if new_offset == old_offset:
             return
 
-        push_fn = self._arrow.on_push_undo
+        push_fn = self._vec.on_push_undo
         if push_fn is not None:
             # Revert, then let command's redo() re-apply
-            self._arrow._label_offset = QPointF(old_offset)
+            self._vec._label_offset = QPointF(old_offset)
             self.update_position()
 
             from commands import MoveLabelCommand
-            cmd = MoveLabelCommand(self._arrow, old_offset, new_offset)
+            cmd = MoveLabelCommand(self._vec, old_offset, new_offset)
             push_fn(cmd)
 
 
 class ControlPoint(QGraphicsEllipseItem):
-    """Draggable handle at the tail or head of an arrow."""
+    """Draggable handle at the tail or head of a vector."""
 
-    def __init__(self, x: float, y: float, arrow: "ArrowItem", is_head: bool):
-        r = HANDLE_RADIUS
+    def __init__(self, x: float, y: float, vec: "VectorItem", is_head: bool):
+        r = vector_settings.handle_radius
         super().__init__(-r, -r, 2 * r, 2 * r)
         self.setPos(x, y)
-        self._arrow = arrow
+        self._vec = vec
         self._is_head = is_head
         self.setBrush(QBrush(SELECTED_COLOR))
         self.setPen(QPen(QColor(255, 255, 255), 1))
@@ -217,18 +225,18 @@ class ControlPoint(QGraphicsEllipseItem):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionChange:
             modifiers = QApplication.keyboardModifiers()
             if not (modifiers & Qt.KeyboardModifier.ControlModifier):
-                anchor = self._arrow.tail if self._is_head else self._arrow.head
+                anchor = self._vec.tail if self._is_head else self._vec.head
                 value = self._snap(anchor, value)
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
             if self._is_head:
-                self._arrow.set_head(value)
+                self._vec.set_head(value)
             else:
-                self._arrow.set_tail(value)
+                self._vec.set_tail(value)
         return super().itemChange(change, value)
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent):
-        self._drag_old_tail = QPointF(self._arrow.tail)
-        self._drag_old_head = QPointF(self._arrow.head)
+        self._drag_old_tail = QPointF(self._vec.tail)
+        self._drag_old_head = QPointF(self._vec.head)
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent):
@@ -237,8 +245,8 @@ class ControlPoint(QGraphicsEllipseItem):
         if self._drag_old_tail is None:
             return
 
-        new_tail = QPointF(self._arrow.tail)
-        new_head = QPointF(self._arrow.head)
+        new_tail = QPointF(self._vec.tail)
+        new_head = QPointF(self._vec.head)
         old_tail = self._drag_old_tail
         old_head = self._drag_old_head
         self._drag_old_tail = None
@@ -247,18 +255,18 @@ class ControlPoint(QGraphicsEllipseItem):
         if new_tail == old_tail and new_head == old_head:
             return
 
-        push_fn = self._arrow.on_push_undo
+        push_fn = self._vec.on_push_undo
         if push_fn is not None:
-            self._arrow.set_tail(old_tail)
-            self._arrow.set_head(old_head)
+            self._vec.set_tail(old_tail)
+            self._vec.set_head(old_head)
 
-            from commands import ResizeArrowCommand
-            cmd = ResizeArrowCommand(self._arrow, old_tail, old_head, new_tail, new_head)
+            from commands import ResizeVectorCommand
+            cmd = ResizeVectorCommand(self._vec, old_tail, old_head, new_tail, new_head)
             push_fn(cmd)
 
 
-class ArrowItem(QGraphicsPathItem):
-    """A straight arrow from tail to head with an arrowhead."""
+class VectorItem(QGraphicsPathItem):
+    """A straight vector from tail to head with an arrowhead."""
 
     def __init__(self, tail: QPointF, head: QPointF, parent=None):
         super().__init__(parent)
@@ -276,12 +284,7 @@ class ArrowItem(QGraphicsPathItem):
         self.on_modified = None      # callback: canvas marks dirty
         self.on_push_undo = None     # callback: canvas pushes QUndoCommand
 
-        self._pen_normal = QPen(ARROW_COLOR, ARROW_THICKNESS)
-        self._pen_selected = QPen(SELECTED_COLOR, ARROW_THICKNESS)
-        self._shaft_pen_normal = QPen(ARROW_COLOR, SHAFT_THICKNESS)
-        self._shaft_pen_normal.setCapStyle(Qt.PenCapStyle.RoundCap)
-        self._shaft_pen_selected = QPen(SELECTED_COLOR, SHAFT_THICKNESS)
-        self._shaft_pen_selected.setCapStyle(Qt.PenCapStyle.RoundCap)
+        self._rebuild_pens()
         self.setPen(self._pen_normal)
         self._head_polygon: QPolygonF | None = None
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -292,7 +295,7 @@ class ArrowItem(QGraphicsPathItem):
         self._head_handle = ControlPoint(head.x(), head.y(), self, is_head=True)
 
         # Label (added to scene later)
-        self._label = ArrowLabel(self)
+        self._label = VectorLabel(self)
         self._label.set_font_size(self._font_size)
 
         self._rebuild_path()
@@ -363,8 +366,8 @@ class ArrowItem(QGraphicsPathItem):
         self._label.update_display()
 
     @property
-    def arrow_length(self) -> float:
-        """Geometric length of the arrow in scene pixels."""
+    def vector_length(self) -> float:
+        """Geometric length of the vector in scene pixels."""
         dx = self._head.x() - self._tail.x()
         dy = self._head.y() - self._tail.y()
         return math.hypot(dx, dy)
@@ -401,7 +404,7 @@ class ArrowItem(QGraphicsPathItem):
         self._label.setVisible(self._label_visible and bool(self._label_text))
 
     def move_by(self, delta: QPointF):
-        """Translate the entire arrow (tail + head) by delta."""
+        """Translate the entire vector (tail + head) by delta."""
         self._tail += delta
         self._head += delta
         self._tail_handle.setPos(self._tail)
@@ -418,18 +421,38 @@ class ArrowItem(QGraphicsPathItem):
         self._head_handle.setPos(point)
         self._rebuild_path()
 
+    def _rebuild_pens(self):
+        s = vector_settings
+        self._pen_normal = QPen(VECTOR_COLOR, s.arrow_thickness)
+        self._pen_selected = QPen(SELECTED_COLOR, s.arrow_thickness)
+        self._shaft_pen_normal = QPen(VECTOR_COLOR, s.shaft_thickness)
+        self._shaft_pen_normal.setCapStyle(Qt.PenCapStyle.RoundCap)
+        self._shaft_pen_selected = QPen(SELECTED_COLOR, s.shaft_thickness)
+        self._shaft_pen_selected.setCapStyle(Qt.PenCapStyle.RoundCap)
+        self.setPen(self._pen_normal)
+
+    def refresh_style(self):
+        """Rebuild pens, handle sizes, and path from current vector_settings."""
+        self._rebuild_pens()
+        r = vector_settings.handle_radius
+        self._tail_handle.setRect(-r, -r, 2 * r, 2 * r)
+        self._head_handle.setRect(-r, -r, 2 * r, 2 * r)
+        self._rebuild_path()
+        self.update()
+
     def _rebuild_path(self):
         # Build arrowhead polygon + shaft endpoint
+        s = vector_settings
         dx = self._head.x() - self._tail.x()
         dy = self._head.y() - self._tail.y()
         length = math.hypot(dx, dy)
         if length > 0:
             ux, uy = dx / length, dy / length
-            bx = self._head.x() - ux * ARROWHEAD_LENGTH
-            by = self._head.y() - uy * ARROWHEAD_LENGTH
-            px, py = -uy * ARROWHEAD_WIDTH / 2, ux * ARROWHEAD_WIDTH / 2
-            nx = bx + ux * ARROWHEAD_NOTCH
-            ny = by + uy * ARROWHEAD_NOTCH
+            bx = self._head.x() - ux * s.arrowhead_length
+            by = self._head.y() - uy * s.arrowhead_length
+            px, py = -uy * s.arrowhead_width / 2, ux * s.arrowhead_width / 2
+            nx = bx + ux * s.arrowhead_notch
+            ny = by + uy * s.arrowhead_notch
             self._head_polygon = QPolygonF([
                 self._head,
                 QPointF(bx + px, by + py),
@@ -456,7 +479,7 @@ class ArrowItem(QGraphicsPathItem):
 
     def shape(self) -> QPainterPath:
         stroker = QPainterPathStroker()
-        stroker.setWidth(SHAFT_THICKNESS + 4)  # slightly wider than visual for easy clicking
+        stroker.setWidth(vector_settings.shaft_thickness + 4)  # slightly wider than visual for easy clicking
         shaft_path = QPainterPath()
         shaft_path.moveTo(self._tail)
         shaft_path.lineTo(self._head)
@@ -468,7 +491,7 @@ class ArrowItem(QGraphicsPathItem):
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None):
         is_sel = self.isSelected()
-        color = SELECTED_COLOR if is_sel else ARROW_COLOR
+        color = SELECTED_COLOR if is_sel else VECTOR_COLOR
 
         self._tail_handle.setVisible(is_sel)
         self._head_handle.setVisible(is_sel)
@@ -501,22 +524,22 @@ class ArrowItem(QGraphicsPathItem):
         }
 
     @classmethod
-    def from_dict(cls, data: dict) -> "ArrowItem":
-        arrow = cls(
+    def from_dict(cls, data: dict) -> "VectorItem":
+        vec = cls(
             QPointF(data["tail"][0], data["tail"][1]),
             QPointF(data["head"][0], data["head"][1]),
         )
-        arrow._label_text = data.get("label_text", "")
-        arrow._label_visible = data.get("label_visible", False)
+        vec._label_text = data.get("label_text", "")
+        vec._label_visible = data.get("label_visible", False)
         offset = data.get("label_offset", [DEFAULT_LABEL_OFFSET.x(), DEFAULT_LABEL_OFFSET.y()])
-        arrow._label_offset = QPointF(offset[0], offset[1])
-        arrow._magnitude = data.get("magnitude", DEFAULT_MAGNITUDE)
-        arrow._show_magnitude = data.get("show_magnitude", False)
-        arrow._font_size = data.get("font_size", DEFAULT_FONT_SIZE)
-        arrow._label_bold = data.get("label_bold", True)
-        arrow._label_italic = data.get("label_italic", True)
-        arrow._label.set_font_size(arrow._font_size)
-        arrow._label.update_display()
-        arrow._update_label_visibility()
-        arrow._label.update_position()
-        return arrow
+        vec._label_offset = QPointF(offset[0], offset[1])
+        vec._magnitude = data.get("magnitude", DEFAULT_MAGNITUDE)
+        vec._show_magnitude = data.get("show_magnitude", False)
+        vec._font_size = data.get("font_size", DEFAULT_FONT_SIZE)
+        vec._label_bold = data.get("label_bold", True)
+        vec._label_italic = data.get("label_italic", True)
+        vec._label.set_font_size(vec._font_size)
+        vec._label.update_display()
+        vec._update_label_visibility()
+        vec._label.update_position()
+        return vec
