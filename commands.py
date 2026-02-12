@@ -2,7 +2,12 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QUndoCommand
 
 from vector_item import VectorItem
+from point_item import PointItem
 
+
+# ---------------------------------------------------------------------------
+# Vector commands
+# ---------------------------------------------------------------------------
 
 class AddVectorCommand(QUndoCommand):
     """Command to add a vector to the canvas."""
@@ -86,65 +91,132 @@ class ResizeVectorCommand(QUndoCommand):
             self._vec.on_modified()
 
 
-class ChangeLabelTextCommand(QUndoCommand):
-    """Command to change a vector's label text."""
+# ---------------------------------------------------------------------------
+# Point commands
+# ---------------------------------------------------------------------------
 
-    def __init__(self, vec: VectorItem, old_text: str, new_text: str):
+class AddPointCommand(QUndoCommand):
+    """Command to add a point to the canvas."""
+
+    def __init__(self, canvas, point: PointItem):
+        super().__init__("Add Point")
+        self._canvas = canvas
+        self._point = point
+
+    def redo(self):
+        self._canvas.add_point(self._point)
+        self._canvas.modified.emit()
+
+    def undo(self):
+        self._canvas.remove_point(self._point)
+        self._canvas.modified.emit()
+        self._canvas.selection_changed.emit()
+
+
+class DeletePointCommand(QUndoCommand):
+    """Command to delete a point from the canvas."""
+
+    def __init__(self, canvas, point: PointItem):
+        super().__init__("Delete Point")
+        self._canvas = canvas
+        self._point = point
+
+    def redo(self):
+        self._canvas.remove_point(self._point)
+        self._canvas.modified.emit()
+        self._canvas.selection_changed.emit()
+
+    def undo(self):
+        self._canvas.add_point(self._point)
+        self._canvas.modified.emit()
+
+
+class MovePointCommand(QUndoCommand):
+    """Command to move a point by a delta."""
+
+    def __init__(self, point: PointItem, old_pos: QPointF, new_pos: QPointF):
+        super().__init__("Move Point")
+        self._point = point
+        self._delta = new_pos - old_pos
+
+    def redo(self):
+        self._point.move_by(self._delta)
+        if self._point.on_modified:
+            self._point.on_modified()
+
+    def undo(self):
+        self._point.move_by(-self._delta)
+        if self._point.on_modified:
+            self._point.on_modified()
+
+
+# ---------------------------------------------------------------------------
+# Shared label commands (work with any item that has the label interface)
+# ---------------------------------------------------------------------------
+
+class ChangeLabelTextCommand(QUndoCommand):
+    """Command to change an item's label text."""
+
+    def __init__(self, item, old_text: str, new_text: str):
         super().__init__("Change Label Text")
-        self._vec = vec
+        self._item = item
         self._old_text = old_text
         self._new_text = new_text
 
     def redo(self):
-        self._vec.label_text = self._new_text
-        if self._vec.on_modified:
-            self._vec.on_modified()
+        self._item.label_text = self._new_text
+        if self._item.on_modified:
+            self._item.on_modified()
 
     def undo(self):
-        self._vec.label_text = self._old_text
-        if self._vec.on_modified:
-            self._vec.on_modified()
+        self._item.label_text = self._old_text
+        if self._item.on_modified:
+            self._item.on_modified()
 
 
 class ChangeLabelVisibilityCommand(QUndoCommand):
-    """Command to toggle a vector's label visibility."""
+    """Command to toggle an item's label visibility."""
 
-    def __init__(self, vec: VectorItem, old_vis: bool, new_vis: bool):
+    def __init__(self, item, old_vis: bool, new_vis: bool):
         super().__init__("Toggle Label")
-        self._vec = vec
+        self._item = item
         self._old_vis = old_vis
         self._new_vis = new_vis
 
     def redo(self):
-        self._vec.label_visible = self._new_vis
-        if self._vec.on_modified:
-            self._vec.on_modified()
+        self._item.label_visible = self._new_vis
+        if self._item.on_modified:
+            self._item.on_modified()
 
     def undo(self):
-        self._vec.label_visible = self._old_vis
-        if self._vec.on_modified:
-            self._vec.on_modified()
+        self._item.label_visible = self._old_vis
+        if self._item.on_modified:
+            self._item.on_modified()
 
 
 class MoveLabelCommand(QUndoCommand):
-    """Command to move a label's offset relative to its vector midpoint."""
+    """Command to move a label's offset relative to its parent item."""
 
-    def __init__(self, vec: VectorItem, old_offset: QPointF, new_offset: QPointF):
+    def __init__(self, item, old_offset: QPointF, new_offset: QPointF):
         super().__init__("Move Label")
-        self._vec = vec
+        self._item = item
         self._old_offset = QPointF(old_offset)
         self._new_offset = QPointF(new_offset)
 
     def redo(self):
-        self._vec.label_offset = self._new_offset
-        if self._vec.on_modified:
-            self._vec.on_modified()
+        self._item.label_offset = self._new_offset
+        if self._item.on_modified:
+            self._item.on_modified()
 
     def undo(self):
-        self._vec.label_offset = self._old_offset
-        if self._vec.on_modified:
-            self._vec.on_modified()
+        self._item.label_offset = self._old_offset
+        if self._item.on_modified:
+            self._item.on_modified()
 
+
+# ---------------------------------------------------------------------------
+# Vector-specific property commands
+# ---------------------------------------------------------------------------
 
 class ChangeMagnitudeCommand(QUndoCommand):
     """Command to change a vector's magnitude value."""
@@ -186,61 +258,65 @@ class ChangeShowMagnitudeCommand(QUndoCommand):
             self._vec.on_modified()
 
 
-class ChangeFontSizeCommand(QUndoCommand):
-    """Command to change a vector label's font size."""
+# ---------------------------------------------------------------------------
+# Shared style commands (work with any item that has the style interface)
+# ---------------------------------------------------------------------------
 
-    def __init__(self, vec: VectorItem, old_size: int, new_size: int):
+class ChangeFontSizeCommand(QUndoCommand):
+    """Command to change a label's font size."""
+
+    def __init__(self, item, old_size: int, new_size: int):
         super().__init__("Change Font Size")
-        self._vec = vec
+        self._item = item
         self._old_size = old_size
         self._new_size = new_size
 
     def redo(self):
-        self._vec.font_size = self._new_size
-        if self._vec.on_modified:
-            self._vec.on_modified()
+        self._item.font_size = self._new_size
+        if self._item.on_modified:
+            self._item.on_modified()
 
     def undo(self):
-        self._vec.font_size = self._old_size
-        if self._vec.on_modified:
-            self._vec.on_modified()
+        self._item.font_size = self._old_size
+        if self._item.on_modified:
+            self._item.on_modified()
 
 
 class ChangeLabelBoldCommand(QUndoCommand):
-    """Command to toggle a vector label's bold state."""
+    """Command to toggle a label's bold state."""
 
-    def __init__(self, vec: VectorItem, old_val: bool, new_val: bool):
+    def __init__(self, item, old_val: bool, new_val: bool):
         super().__init__("Toggle Bold")
-        self._vec = vec
+        self._item = item
         self._old_val = old_val
         self._new_val = new_val
 
     def redo(self):
-        self._vec.label_bold = self._new_val
-        if self._vec.on_modified:
-            self._vec.on_modified()
+        self._item.label_bold = self._new_val
+        if self._item.on_modified:
+            self._item.on_modified()
 
     def undo(self):
-        self._vec.label_bold = self._old_val
-        if self._vec.on_modified:
-            self._vec.on_modified()
+        self._item.label_bold = self._old_val
+        if self._item.on_modified:
+            self._item.on_modified()
 
 
 class ChangeLabelItalicCommand(QUndoCommand):
-    """Command to toggle a vector label's italic state."""
+    """Command to toggle a label's italic state."""
 
-    def __init__(self, vec: VectorItem, old_val: bool, new_val: bool):
+    def __init__(self, item, old_val: bool, new_val: bool):
         super().__init__("Toggle Italic")
-        self._vec = vec
+        self._item = item
         self._old_val = old_val
         self._new_val = new_val
 
     def redo(self):
-        self._vec.label_italic = self._new_val
-        if self._vec.on_modified:
-            self._vec.on_modified()
+        self._item.label_italic = self._new_val
+        if self._item.on_modified:
+            self._item.on_modified()
 
     def undo(self):
-        self._vec.label_italic = self._old_val
-        if self._vec.on_modified:
-            self._vec.on_modified()
+        self._item.label_italic = self._old_val
+        if self._item.on_modified:
+            self._item.on_modified()

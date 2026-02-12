@@ -35,7 +35,6 @@
       <property name="orientation">
        <enum>Qt::Horizontal</enum>
       </property>
-      <!-- Side Panel -->
       <widget class="QWidget" name="sidePanel">
        <property name="minimumSize">
         <size>
@@ -53,7 +52,6 @@
         <property name="spacing">
          <number>8</number>
         </property>
-        <!-- Tools Section -->
         <item>
          <widget class="QGroupBox" name="toolsGroupBox">
           <property name="title">
@@ -70,23 +68,70 @@
              </property>
             </widget>
            </item>
+           <item>
+            <widget class="QPushButton" name="pointToolButton">
+             <property name="text">
+              <string>Create Point (P)</string>
+             </property>
+             <property name="checkable">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
           </layout>
          </widget>
         </item>
-        <!-- Properties Section -->
+        <item>
+         <widget class="QGroupBox" name="layersGroupBox">
+          <property name="title">
+           <string>Layers</string>
+          </property>
+          <layout class="QVBoxLayout" name="layersLayout">
+           <item>
+            <widget class="QCheckBox" name="backgroundLayerCheckBox">
+             <property name="text">
+              <string>Background Image</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="vectorsLayerCheckBox">
+             <property name="text">
+              <string>Vectors</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="pointsLayerCheckBox">
+             <property name="text">
+              <string>Points</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+          </layout>
+         </widget>
+        </item>
         <item>
          <widget class="QGroupBox" name="propertiesGroupBox">
-          <property name="title">
-           <string>Properties</string>
-          </property>
           <property name="enabled">
            <bool>false</bool>
+          </property>
+          <property name="title">
+           <string>Properties</string>
           </property>
           <layout class="QFormLayout" name="propertiesLayout">
            <property name="fieldGrowthPolicy">
             <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
            </property>
-           <!-- Start X -->
            <item row="0" column="0">
             <widget class="QLabel" name="startXLabel">
              <property name="text">
@@ -107,7 +152,6 @@
              </property>
             </widget>
            </item>
-           <!-- Start Y -->
            <item row="1" column="0">
             <widget class="QLabel" name="startYLabel">
              <property name="text">
@@ -128,7 +172,6 @@
              </property>
             </widget>
            </item>
-           <!-- End X -->
            <item row="2" column="0">
             <widget class="QLabel" name="endXLabel">
              <property name="text">
@@ -149,7 +192,6 @@
              </property>
             </widget>
            </item>
-           <!-- End Y -->
            <item row="3" column="0">
             <widget class="QLabel" name="endYLabel">
              <property name="text">
@@ -170,7 +212,6 @@
              </property>
             </widget>
            </item>
-           <!-- Magnitude -->
            <item row="4" column="0">
             <widget class="QLabel" name="magnitudeLabel">
              <property name="text">
@@ -194,7 +235,6 @@
              </property>
             </widget>
            </item>
-           <!-- Show Magnitude -->
            <item row="5" column="0">
             <widget class="QLabel" name="showMagnitudeLabel">
              <property name="text">
@@ -209,7 +249,6 @@
              </property>
             </widget>
            </item>
-           <!-- Divider -->
            <item row="6" column="0" colspan="2">
             <widget class="QFrame" name="labelDivider">
              <property name="frameShape">
@@ -220,7 +259,6 @@
              </property>
             </widget>
            </item>
-           <!-- Show Label -->
            <item row="7" column="0">
             <widget class="QLabel" name="showLabelLabel">
              <property name="text">
@@ -235,7 +273,6 @@
              </property>
             </widget>
            </item>
-           <!-- Label Text -->
            <item row="8" column="0">
             <widget class="QLabel" name="labelTextLabel">
              <property name="text">
@@ -250,7 +287,46 @@
              </property>
             </widget>
            </item>
-           <!-- Font Size + Bold/Italic -->
+           <item row="10" column="0">
+            <widget class="QLabel" name="posXLabel">
+             <property name="text">
+              <string>Position X:</string>
+             </property>
+            </widget>
+           </item>
+           <item row="10" column="1">
+            <widget class="QDoubleSpinBox" name="posXSpinBox">
+             <property name="decimals">
+              <number>1</number>
+             </property>
+             <property name="minimum">
+              <double>-99999.000000000000000</double>
+             </property>
+             <property name="maximum">
+              <double>99999.000000000000000</double>
+             </property>
+            </widget>
+           </item>
+           <item row="11" column="0">
+            <widget class="QLabel" name="posYLabel">
+             <property name="text">
+              <string>Position Y:</string>
+             </property>
+            </widget>
+           </item>
+           <item row="11" column="1">
+            <widget class="QDoubleSpinBox" name="posYSpinBox">
+             <property name="decimals">
+              <number>1</number>
+             </property>
+             <property name="minimum">
+              <double>-99999.000000000000000</double>
+             </property>
+             <property name="maximum">
+              <double>99999.000000000000000</double>
+             </property>
+            </widget>
+           </item>
            <item row="9" column="0">
             <widget class="QLabel" name="fontSizeLabel">
              <property name="text">
@@ -278,15 +354,6 @@
              </item>
              <item>
               <widget class="QPushButton" name="boldButton">
-               <property name="text">
-                <string>B</string>
-               </property>
-               <property name="checkable">
-                <bool>true</bool>
-               </property>
-               <property name="checked">
-                <bool>true</bool>
-               </property>
                <property name="minimumSize">
                 <size>
                  <width>28</width>
@@ -305,12 +372,8 @@
                  <bold>true</bold>
                 </font>
                </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QPushButton" name="italicButton">
                <property name="text">
-                <string>I</string>
+                <string>B</string>
                </property>
                <property name="checkable">
                 <bool>true</bool>
@@ -318,6 +381,10 @@
                <property name="checked">
                 <bool>true</bool>
                </property>
+              </widget>
+             </item>
+             <item>
+              <widget class="QPushButton" name="italicButton">
                <property name="minimumSize">
                 <size>
                  <width>28</width>
@@ -335,6 +402,15 @@
                  <italic>true</italic>
                 </font>
                </property>
+               <property name="text">
+                <string>I</string>
+               </property>
+               <property name="checkable">
+                <bool>true</bool>
+               </property>
+               <property name="checked">
+                <bool>true</bool>
+               </property>
               </widget>
              </item>
             </layout>
@@ -342,7 +418,6 @@
           </layout>
          </widget>
         </item>
-        <!-- Spacer to push everything up -->
         <item>
          <spacer name="sidePanelSpacer">
           <property name="orientation">
@@ -358,7 +433,6 @@
         </item>
        </layout>
       </widget>
-      <!-- Canvas (promoted to FBDCanvas) -->
       <widget class="FBDCanvas" name="canvas">
        <property name="sizePolicy">
         <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
@@ -371,14 +445,13 @@
     </item>
    </layout>
   </widget>
-  <!-- Menu Bar -->
   <widget class="QMenuBar" name="menubar">
    <property name="geometry">
     <rect>
      <x>0</x>
      <y>0</y>
      <width>1200</width>
-     <height>22</height>
+     <height>21</height>
     </rect>
    </property>
    <widget class="QMenu" name="menuFile">
@@ -407,9 +480,7 @@
    <addaction name="menuFile"/>
    <addaction name="menuEdit"/>
   </widget>
-  <!-- Status Bar -->
   <widget class="QStatusBar" name="statusbar"/>
-  <!-- Actions -->
   <action name="actionNew">
    <property name="text">
     <string>New</string>

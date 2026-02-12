@@ -8,16 +8,19 @@ from PyQt6.QtGui import QPixmap
 
 from canvas import FBDCanvas, SessionMetadata
 from vector_item import VectorItem, DEFAULT_MAGNITUDE, DEFAULT_FONT_SIZE
+from point_item import PointItem
 
 FBD_VERSION = 1
 MAGIC_HEADER_V1 = b"FBD_BIN_v1"
 MAGIC_HEADER_V2 = b"FBD_BIN_v2"
 MAGIC_HEADER_V3 = b"FBD_BIN_v3"
 MAGIC_HEADER_V4 = b"FBD_BIN_v4"
-MAGIC_HEADER = b"FBD_BIN_v5"
-ALL_MAGIC_HEADERS = (MAGIC_HEADER, MAGIC_HEADER_V4, MAGIC_HEADER_V3, MAGIC_HEADER_V2, MAGIC_HEADER_V1)
+MAGIC_HEADER_V5 = b"FBD_BIN_v5"
+MAGIC_HEADER = b"FBD_BIN_v6"
+ALL_MAGIC_HEADERS = (MAGIC_HEADER, MAGIC_HEADER_V5, MAGIC_HEADER_V4, MAGIC_HEADER_V3, MAGIC_HEADER_V2, MAGIC_HEADER_V1)
 MAX_IMAGE_BYTES = 100 * 1024 * 1024  # 100 MB sanity limit
 MAX_VECTOR_COUNT = 10_000
+MAX_POINT_COUNT = 10_000
 MAX_LABEL_BYTES = 10_000
 
 
@@ -87,6 +90,7 @@ def _save_fbd_json(canvas: FBDCanvas, file_path: Path):
         "version": FBD_VERSION,
         "background_image": pixmap_to_base64(bg_pixmap) if bg_pixmap else None,
         "arrows": canvas.get_vectors_data(),
+        "points": canvas.get_points_data(),
         "metadata": canvas.metadata.to_dict(),
     }
     file_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -98,6 +102,7 @@ def _load_fbd_json(canvas: FBDCanvas, file_path: Path):
 
     # Clear existing state first
     canvas.clear_vectors()
+    canvas.clear_points()
 
     # Restore background
     bg_data = data.get("background_image")
@@ -110,6 +115,11 @@ def _load_fbd_json(canvas: FBDCanvas, file_path: Path):
     for vec_data in data.get("arrows", []):
         vec = VectorItem.from_dict(vec_data)
         canvas.add_vector(vec)
+
+    # Restore points
+    for pt_data in data.get("points", []):
+        pt = PointItem.from_dict(pt_data)
+        canvas.add_point(pt)
 
     # Restore metadata
     meta_data = data.get("metadata")
@@ -166,16 +176,35 @@ def _save_fbd_binary(canvas: FBDCanvas, file_path: Path):
             meta.session_count, meta.undo_count,
             meta.total_arrows_created, meta.total_arrows_deleted))
 
+        # v6: Points
+        points_data = canvas.get_points_data()
+        f.write(struct.pack("<I", len(points_data)))
+
+        for p in points_data:
+            f.write(struct.pack("<2f", p["pos"][0], p["pos"][1]))
+            label_bytes = p["label_text"].encode("utf-8")
+            f.write(struct.pack("<I", len(label_bytes)))
+            f.write(label_bytes)
+            f.write(struct.pack("?", p["label_visible"]))
+            f.write(struct.pack("<2f",
+                p["label_offset"][0], p["label_offset"][1],
+            ))
+            f.write(struct.pack("<I", p["font_size"]))
+            f.write(struct.pack("?", p.get("label_bold", True)))
+            f.write(struct.pack("?", p.get("label_italic", True)))
+
 
 def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
     with open(file_path, "rb") as f:
-        # Read header — support v1 through v5
+        # Read header — support v1 through v6
         header = _read_exact(f, len(MAGIC_HEADER))
-        version = 5 if header == MAGIC_HEADER else 0
+        version = 6 if header == MAGIC_HEADER else 0
         if version == 0:
             f.seek(0)
-            header = _read_exact(f, len(MAGIC_HEADER_V4))
-            if header == MAGIC_HEADER_V4:
+            header = _read_exact(f, len(MAGIC_HEADER_V5))
+            if header == MAGIC_HEADER_V5:
+                version = 5
+            elif header == MAGIC_HEADER_V4:
                 version = 4
             elif header == MAGIC_HEADER_V3:
                 version = 3
@@ -188,6 +217,7 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
 
         # Clear existing state first
         canvas.clear_vectors()
+        canvas.clear_points()
 
         # Background image
         img_len = struct.unpack("<I", _read_exact(f, 4))[0]
@@ -270,3 +300,32 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
                 total_arrows_created=arrows_created,
                 total_arrows_deleted=arrows_deleted,
             )
+
+        # v6: Points
+        if version >= 6:
+            point_count = struct.unpack("<I", _read_exact(f, 4))[0]
+            if point_count > MAX_POINT_COUNT:
+                raise ValueError(f"Point count {point_count} exceeds maximum ({MAX_POINT_COUNT})")
+
+            for _ in range(point_count):
+                px, py = struct.unpack("<2f", _read_exact(f, 8))
+                lbl_len = struct.unpack("<I", _read_exact(f, 4))[0]
+                if lbl_len > MAX_LABEL_BYTES:
+                    raise ValueError(f"Label size {lbl_len} exceeds maximum ({MAX_LABEL_BYTES})")
+                label_text = _read_exact(f, lbl_len).decode("utf-8")
+                label_visible = struct.unpack("?", _read_exact(f, 1))[0]
+                ox, oy = struct.unpack("<2f", _read_exact(f, 8))
+                font_size = struct.unpack("<I", _read_exact(f, 4))[0]
+                label_bold = struct.unpack("?", _read_exact(f, 1))[0]
+                label_italic = struct.unpack("?", _read_exact(f, 1))[0]
+
+                pt = PointItem.from_dict({
+                    "pos": [px, py],
+                    "label_text": label_text,
+                    "label_visible": label_visible,
+                    "label_offset": [ox, oy],
+                    "font_size": font_size,
+                    "label_bold": label_bold,
+                    "label_italic": label_italic,
+                })
+                canvas.add_point(pt)

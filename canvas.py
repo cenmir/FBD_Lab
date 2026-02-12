@@ -15,7 +15,11 @@ from PyQt6.QtWidgets import (
 )
 
 from vector_item import VectorItem
-from commands import AddVectorCommand, DeleteVectorCommand, MoveVectorCommand
+from point_item import PointItem
+from commands import (
+    AddVectorCommand, DeleteVectorCommand, MoveVectorCommand,
+    AddPointCommand, DeletePointCommand, MovePointCommand,
+)
 
 
 @dataclass
@@ -61,11 +65,12 @@ class SessionMetadata:
 class ToolMode(Enum):
     SELECT = auto()
     VECTOR = auto()
+    POINT = auto()
 
 
 class FBDCanvas(QGraphicsView):
     vector_created = pyqtSignal(object)    # emits the new VectorItem
-    selection_changed = pyqtSignal()       # emits when selected vector changes
+    selection_changed = pyqtSignal()       # emits when selected item changes
     tool_changed = pyqtSignal(object)      # emits new ToolMode
     modified = pyqtSignal()                # emits when content changes (dirty flag)
 
@@ -75,6 +80,7 @@ class FBDCanvas(QGraphicsView):
         self.setScene(self._scene)
         self._bg_item: QGraphicsPixmapItem | None = None
         self._vectors: list[VectorItem] = []
+        self._points: list[PointItem] = []
         self._undo_stack: QUndoStack | None = None
 
         # Session metadata
@@ -87,10 +93,20 @@ class FBDCanvas(QGraphicsView):
         self._draw_start: QPointF | None = None
         self._preview_line: QGraphicsLineItem | None = None
 
-        # Body-drag state
+        # Body-drag state (vectors)
         self._dragging_vector: VectorItem | None = None
         self._drag_start_tail: QPointF | None = None
         self._drag_last: QPointF | None = None
+
+        # Body-drag state (points)
+        self._dragging_point: PointItem | None = None
+        self._drag_start_pos: QPointF | None = None
+        self._drag_point_last: QPointF | None = None
+
+        # Layer visibility flags
+        self._bg_visible = True
+        self._vectors_visible = True
+        self._points_visible = True
 
         # Rendering
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -130,6 +146,9 @@ class FBDCanvas(QGraphicsView):
         elif mode == ToolMode.VECTOR:
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.setCursor(Qt.CursorShape.CrossCursor)
+        elif mode == ToolMode.POINT:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            self.setCursor(Qt.CursorShape.CrossCursor)
         self.tool_changed.emit(mode)
 
     # --- Background ---
@@ -145,6 +164,8 @@ class FBDCanvas(QGraphicsView):
             self._bg_item.setFlag(QGraphicsPixmapItem.GraphicsItemFlag.ItemIsSelectable, False)
             self._bg_item.setFlag(QGraphicsPixmapItem.GraphicsItemFlag.ItemIsMovable, False)
             self._scene.addItem(self._bg_item)
+            if not self._bg_visible:
+                self._bg_item.setVisible(False)
             self._scene.setSceneRect(self._bg_item.boundingRect())
         else:
             self._scene.setSceneRect(0, 0, 800, 600)
@@ -171,6 +192,11 @@ class FBDCanvas(QGraphicsView):
             if self._has_undo_stack():
                 vec.on_push_undo = lambda cmd: self._undo_stack.push(cmd)
             self._vectors.append(vec)
+            if not self._vectors_visible:
+                vec.setVisible(False)
+                vec._label.setVisible(False)
+                vec._tail_handle.setVisible(False)
+                vec._head_handle.setVisible(False)
 
     def remove_vector(self, vec: VectorItem):
         if vec in self._vectors:
@@ -193,6 +219,74 @@ class FBDCanvas(QGraphicsView):
     def clear_vectors(self):
         for vec in list(self._vectors):
             self.remove_vector(vec)
+
+    # --- Points ---
+
+    def add_point(self, point: PointItem):
+        if point not in self._points:
+            self._scene.addItem(point)
+            point.added_to_scene(self._scene)
+            point.on_modified = lambda: self.modified.emit()
+            if self._has_undo_stack():
+                point.on_push_undo = lambda cmd: self._undo_stack.push(cmd)
+            self._points.append(point)
+            if not self._points_visible:
+                point.setVisible(False)
+                point._label.setVisible(False)
+
+    def remove_point(self, point: PointItem):
+        if point in self._points:
+            point.removed_from_scene(self._scene)
+            self._scene.removeItem(point)
+            self._points.remove(point)
+
+    def get_points(self) -> list[PointItem]:
+        return list(self._points)
+
+    def get_points_data(self) -> list[dict]:
+        return [p.to_dict() for p in self._points]
+
+    def get_selected_point(self) -> PointItem | None:
+        for item in self._scene.selectedItems():
+            if isinstance(item, PointItem):
+                return item
+        return None
+
+    def clear_points(self):
+        for point in list(self._points):
+            self.remove_point(point)
+
+    # --- Layer visibility ---
+
+    def set_background_visible(self, visible: bool):
+        self._bg_visible = visible
+        if self._bg_item is not None:
+            self._bg_item.setVisible(visible)
+
+    def set_vectors_visible(self, visible: bool):
+        self._vectors_visible = visible
+        for vec in self._vectors:
+            vec.setVisible(visible)
+            vec._label.setVisible(
+                visible and vec._label_visible and bool(vec._label_text)
+            )
+            vec._tail_handle.setVisible(visible)
+            vec._head_handle.setVisible(visible)
+
+    def set_points_visible(self, visible: bool):
+        self._points_visible = visible
+        for pt in self._points:
+            pt.setVisible(visible)
+            pt._label.setVisible(
+                visible and pt._label_visible and bool(pt._label_text)
+            )
+
+    # Future layers:
+    # def set_rectangles_visible(self, visible: bool): ...
+    # def set_circles_visible(self, visible: bool): ...
+    # def set_directions_visible(self, visible: bool): ...
+    # def set_moments_visible(self, visible: bool): ...
+    # def set_lines_visible(self, visible: bool): ...
 
     # --- Snapping ---
 
@@ -231,7 +325,27 @@ class FBDCanvas(QGraphicsView):
                 self._scene.addItem(self._preview_line)
                 return
 
-            # Select mode — check if clicking on a vector body for dragging
+            # Point creation mode
+            if self._tool == ToolMode.POINT:
+                scene_pos = self.mapToScene(event.pos())
+                point = PointItem(scene_pos)
+                point.label_text = f"P_{len(self._points) + 1}"
+                point.label_visible = True
+
+                if self._has_undo_stack():
+                    cmd = AddPointCommand(self, point)
+                    self._undo_stack.push(cmd)
+                else:
+                    self.add_point(point)
+                    self.modified.emit()
+
+                self._scene.clearSelection()
+                point.setSelected(True)
+                self.selection_changed.emit()
+                self.set_tool(ToolMode.SELECT)
+                return
+
+            # Select mode — check if clicking on a vector or point body for dragging
             if self._tool == ToolMode.SELECT:
                 scene_pos = self.mapToScene(event.pos())
                 item = self._scene.itemAt(scene_pos, self.transform())
@@ -239,6 +353,14 @@ class FBDCanvas(QGraphicsView):
                     self._dragging_vector = item
                     self._drag_start_tail = QPointF(item.tail)
                     self._drag_last = scene_pos
+                    if not item.isSelected():
+                        self._scene.clearSelection()
+                        item.setSelected(True)
+                    return
+                if isinstance(item, PointItem):
+                    self._dragging_point = item
+                    self._drag_start_pos = QPointF(item.point_pos)
+                    self._drag_point_last = scene_pos
                     if not item.isSelected():
                         self._scene.clearSelection()
                         item.setSelected(True)
@@ -258,12 +380,20 @@ class FBDCanvas(QGraphicsView):
             )
             return
 
-        # Body drag
+        # Vector body drag
         if self._dragging_vector and self._drag_last:
             scene_pos = self.mapToScene(event.pos())
             delta = scene_pos - self._drag_last
             self._dragging_vector.move_by(delta)
             self._drag_last = scene_pos
+            return
+
+        # Point body drag
+        if self._dragging_point and self._drag_point_last:
+            scene_pos = self.mapToScene(event.pos())
+            delta = scene_pos - self._drag_point_last
+            self._dragging_point.move_by(delta)
+            self._drag_point_last = scene_pos
             return
 
         super().mouseMoveEvent(event)
@@ -304,15 +434,13 @@ class FBDCanvas(QGraphicsView):
                 self.set_tool(ToolMode.SELECT)
                 return
 
-            # Finish body drag
+            # Finish vector body drag
             if self._dragging_vector:
                 vec = self._dragging_vector
                 self._dragging_vector = None
                 self._drag_last = None
 
                 if self._has_undo_stack() and self._drag_start_tail and vec.tail != self._drag_start_tail:
-                    # Vector was already moved during drag. Revert it, then push command
-                    # so QUndoStack.push() → redo() re-applies the move consistently.
                     current_tail = QPointF(vec.tail)
                     original_tail = self._drag_start_tail
                     vec.move_by(original_tail - current_tail)
@@ -322,6 +450,25 @@ class FBDCanvas(QGraphicsView):
                     self.modified.emit()
 
                 self._drag_start_tail = None
+                self.selection_changed.emit()
+                return
+
+            # Finish point body drag
+            if self._dragging_point:
+                point = self._dragging_point
+                self._dragging_point = None
+                self._drag_point_last = None
+
+                if self._has_undo_stack() and self._drag_start_pos and point.point_pos != self._drag_start_pos:
+                    current_pos = QPointF(point.point_pos)
+                    original_pos = self._drag_start_pos
+                    point.move_by(original_pos - current_pos)
+                    cmd = MovePointCommand(point, original_pos, current_pos)
+                    self._undo_stack.push(cmd)
+                else:
+                    self.modified.emit()
+
+                self._drag_start_pos = None
                 self.selection_changed.emit()
                 return
 
@@ -358,15 +505,25 @@ class FBDCanvas(QGraphicsView):
 
     def delete_selected(self):
         vec = self.get_selected_vector()
-        if not vec:
+        if vec:
+            if self._has_undo_stack():
+                cmd = DeleteVectorCommand(self, vec)
+                self._undo_stack.push(cmd)
+            else:
+                self.remove_vector(vec)
+                self.modified.emit()
+                self.selection_changed.emit()
             return
-        if self._has_undo_stack():
-            cmd = DeleteVectorCommand(self, vec)
-            self._undo_stack.push(cmd)
-        else:
-            self.remove_vector(vec)
-            self.modified.emit()
-            self.selection_changed.emit()
+
+        point = self.get_selected_point()
+        if point:
+            if self._has_undo_stack():
+                cmd = DeletePointCommand(self, point)
+                self._undo_stack.push(cmd)
+            else:
+                self.remove_point(point)
+                self.modified.emit()
+                self.selection_changed.emit()
 
     def keyPressEvent(self, event: QKeyEvent):
         if event.key() == Qt.Key.Key_Backspace:

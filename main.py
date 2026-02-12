@@ -12,7 +12,7 @@ from pathlib import Path
 from PyQt6.QtCore import QPointF, QSettings
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QMessageBox, QMenu,
-    QToolBar, QSpinBox, QLabel, QWidget, QHBoxLayout,
+    QToolBar, QSpinBox, QLabel, QWidget, QHBoxLayout, QComboBox,
 )
 from PyQt6.QtGui import (
     QPalette, QColor, QKeySequence, QShortcut, QAction, QPixmap, QIcon,
@@ -22,10 +22,12 @@ from PyQt6 import uic
 
 from canvas import FBDCanvas, ToolMode, SessionMetadata  # noqa: F401 — FBDCanvas needed for uic promotion
 from vector_item import vector_settings
+from point_item import point_settings, POINT_COLORS
 from commands import (
     ResizeVectorCommand, ChangeLabelTextCommand, ChangeLabelVisibilityCommand,
     ChangeMagnitudeCommand, ChangeShowMagnitudeCommand, ChangeFontSizeCommand,
     ChangeLabelBoldCommand, ChangeLabelItalicCommand,
+    MovePointCommand,
 )
 from file_io import save_fbd, load_fbd
 
@@ -236,6 +238,7 @@ def main():
         if not check_unsaved_changes():
             return
         window.canvas.clear_vectors()
+        window.canvas.clear_points()
         window.canvas.set_background(QPixmap())
         _init_new_metadata()
         current_file = None
@@ -336,7 +339,7 @@ def main():
     window.addToolBar(vector_toolbar)
     vector_toolbar.setVisible(False)
 
-    def _make_toolbar_spinbox(label_text: str, value: int, min_val: int, max_val: int):
+    def _make_toolbar_spinbox(toolbar, label_text: str, value: int, min_val: int, max_val: int):
         container = QWidget()
         layout = QHBoxLayout(container)
         layout.setContentsMargins(6, 0, 6, 0)
@@ -347,19 +350,19 @@ def main():
         sb.setFixedWidth(60)
         layout.addWidget(lbl)
         layout.addWidget(sb)
-        vector_toolbar.addWidget(container)
+        toolbar.addWidget(container)
         return sb
 
     def _refresh_all_vectors():
         for vec in window.canvas.get_vectors():
             vec.refresh_style()
 
-    sb_shaft = _make_toolbar_spinbox("Shaft:", vector_settings.shaft_thickness, 1, 30)
-    sb_head_len = _make_toolbar_spinbox("Head Length:", vector_settings.arrowhead_length, 4, 60)
-    sb_head_width = _make_toolbar_spinbox("Head Width:", vector_settings.arrowhead_width, 4, 60)
-    sb_notch = _make_toolbar_spinbox("Notch:", vector_settings.arrowhead_notch, 0, 40)
-    sb_outline = _make_toolbar_spinbox("Outline:", vector_settings.arrow_thickness, 0, 10)
-    sb_handle = _make_toolbar_spinbox("Handle:", vector_settings.handle_radius, 2, 20)
+    sb_shaft = _make_toolbar_spinbox(vector_toolbar, "Shaft:", vector_settings.shaft_thickness, 1, 30)
+    sb_head_len = _make_toolbar_spinbox(vector_toolbar, "Head Length:", vector_settings.arrowhead_length, 4, 60)
+    sb_head_width = _make_toolbar_spinbox(vector_toolbar, "Head Width:", vector_settings.arrowhead_width, 4, 60)
+    sb_notch = _make_toolbar_spinbox(vector_toolbar, "Notch:", vector_settings.arrowhead_notch, 0, 40)
+    sb_outline = _make_toolbar_spinbox(vector_toolbar, "Outline:", vector_settings.arrow_thickness, 0, 10)
+    sb_handle = _make_toolbar_spinbox(vector_toolbar, "Handle:", vector_settings.handle_radius, 2, 20)
 
     def _on_shaft(v):
         vector_settings.shaft_thickness = v
@@ -392,27 +395,83 @@ def main():
     sb_outline.valueChanged.connect(_on_outline)
     sb_handle.valueChanged.connect(_on_handle)
 
-    # "Vector Settings" action in menu bar toggles toolbar directly
-    toggle_toolbar_action = QAction("Vector Settings", window)
-    toggle_toolbar_action.setCheckable(True)
-    toggle_toolbar_action.toggled.connect(vector_toolbar.setVisible)
-    window.menubar.addAction(toggle_toolbar_action)
+    # --- Point Settings toolbar ---
+    point_toolbar = QToolBar("Point Settings", window)
+    point_toolbar.setFixedHeight(50)
+    point_toolbar.setMovable(False)
+    window.addToolBar(point_toolbar)
+    point_toolbar.setVisible(False)
 
-    # --- Vector creation toggle ---
+    sb_point_radius = _make_toolbar_spinbox(point_toolbar, "Point Size:", point_settings.radius, 1, 50)
+
+    def _on_point_radius(v):
+        point_settings.radius = v
+        for p in window.canvas.get_points():
+            p.refresh_style()
+
+    sb_point_radius.valueChanged.connect(_on_point_radius)
+
+    # Point color combo
+    color_container = QWidget()
+    color_layout = QHBoxLayout(color_container)
+    color_layout.setContentsMargins(6, 0, 6, 0)
+    color_layout.addWidget(QLabel("Color:"))
+    cb_point_color = QComboBox()
+    for name, qcolor in POINT_COLORS.items():
+        cb_point_color.addItem(name, name)
+    cb_point_color.setCurrentText(point_settings.color_name)
+    cb_point_color.setFixedWidth(100)
+    color_layout.addWidget(cb_point_color)
+    point_toolbar.addWidget(color_container)
+
+    def _on_point_color(name):
+        point_settings.color_name = name
+        for p in window.canvas.get_points():
+            p.update()
+
+    cb_point_color.currentTextChanged.connect(_on_point_color)
+
+    # --- "Shape Format" menu on menu bar ---
+    shape_format_menu = QMenu("Shape Format", window)
+    window.menubar.addMenu(shape_format_menu)
+
+    toggle_vector_toolbar = QAction("Vector Settings", window)
+    toggle_vector_toolbar.setCheckable(True)
+    toggle_vector_toolbar.toggled.connect(vector_toolbar.setVisible)
+    shape_format_menu.addAction(toggle_vector_toolbar)
+
+    toggle_point_toolbar = QAction("Point Settings", window)
+    toggle_point_toolbar.setCheckable(True)
+    toggle_point_toolbar.toggled.connect(point_toolbar.setVisible)
+    shape_format_menu.addAction(toggle_point_toolbar)
+
+    # --- Tool creation toggles ---
     def on_vector_toggle(checked):
         if checked:
             window.canvas.set_tool(ToolMode.VECTOR)
         else:
             window.canvas.set_tool(ToolMode.SELECT)
 
+    def on_point_toggle(checked):
+        if checked:
+            window.canvas.set_tool(ToolMode.POINT)
+        else:
+            window.canvas.set_tool(ToolMode.SELECT)
+
     window.vectorToolButton.toggled.connect(on_vector_toggle)
+    window.pointToolButton.toggled.connect(on_point_toggle)
 
     def on_tool_changed(mode):
         window.vectorToolButton.blockSignals(True)
+        window.pointToolButton.blockSignals(True)
         window.vectorToolButton.setChecked(mode == ToolMode.VECTOR)
+        window.pointToolButton.setChecked(mode == ToolMode.POINT)
         window.vectorToolButton.blockSignals(False)
+        window.pointToolButton.blockSignals(False)
         if mode == ToolMode.VECTOR:
             window.statusbar.showMessage("Vector creation mode — click and drag to draw")
+        elif mode == ToolMode.POINT:
+            window.statusbar.showMessage("Point creation mode — click to place a point")
         else:
             window.statusbar.showMessage("Ready")
 
@@ -424,35 +483,77 @@ def main():
     shortcut_a = QShortcut(QKeySequence("A"), window)
     shortcut_a.activated.connect(lambda: window.vectorToolButton.toggle())
 
+    # "P" shortcut to toggle point mode
+    shortcut_p = QShortcut(QKeySequence("P"), window)
+    shortcut_p.activated.connect(lambda: window.pointToolButton.toggle())
+
     # Delete action
     window.actionDelete.triggered.connect(window.canvas.delete_selected)
 
     # --- Properties panel sync ---
     _updating_panel = False  # guard against feedback loops
 
+    # Widget groups for conditional visibility
+    _vector_only_widgets = [
+        window.startXLabel, window.startXSpinBox,
+        window.startYLabel, window.startYSpinBox,
+        window.endXLabel, window.endXSpinBox,
+        window.endYLabel, window.endYSpinBox,
+        window.magnitudeLabel, window.magnitudeSpinBox,
+        window.showMagnitudeLabel, window.showMagnitudeCheckBox,
+    ]
+    _point_only_widgets = [
+        window.posXLabel, window.posXSpinBox,
+        window.posYLabel, window.posYSpinBox,
+    ]
+
     def sync_panel():
         nonlocal _updating_panel
         try:
             vec = window.canvas.get_selected_vector()
+            point = window.canvas.get_selected_point()
         except RuntimeError:
             return  # scene already destroyed during shutdown
-        if vec is None:
+
+        if vec is None and point is None:
             window.propertiesGroupBox.setVisible(False)
             return
 
         window.propertiesGroupBox.setVisible(True)
         _updating_panel = True
-        window.startXSpinBox.setValue(vec.tail.x())
-        window.startYSpinBox.setValue(vec.tail.y())
-        window.endXSpinBox.setValue(vec.head.x())
-        window.endYSpinBox.setValue(vec.head.y())
-        window.magnitudeSpinBox.setValue(vec.magnitude)
-        window.showMagnitudeCheckBox.setChecked(vec.show_magnitude)
-        window.showLabelCheckBox.setChecked(vec.label_visible)
-        window.labelTextLineEdit.setText(vec.label_text)
-        window.fontSizeSpinBox.setValue(vec.font_size)
-        window.boldButton.setChecked(vec.label_bold)
-        window.italicButton.setChecked(vec.label_italic)
+
+        if vec is not None:
+            for w in _vector_only_widgets:
+                w.setVisible(True)
+            for w in _point_only_widgets:
+                w.setVisible(False)
+
+            window.startXSpinBox.setValue(vec.tail.x())
+            window.startYSpinBox.setValue(vec.tail.y())
+            window.endXSpinBox.setValue(vec.head.x())
+            window.endYSpinBox.setValue(vec.head.y())
+            window.magnitudeSpinBox.setValue(vec.magnitude)
+            window.showMagnitudeCheckBox.setChecked(vec.show_magnitude)
+            window.showLabelCheckBox.setChecked(vec.label_visible)
+            window.labelTextLineEdit.setText(vec.label_text)
+            window.fontSizeSpinBox.setValue(vec.font_size)
+            window.boldButton.setChecked(vec.label_bold)
+            window.italicButton.setChecked(vec.label_italic)
+
+        elif point is not None:
+            for w in _vector_only_widgets:
+                w.setVisible(False)
+            for w in _point_only_widgets:
+                w.setVisible(True)
+
+            window.posXSpinBox.setValue(point.point_pos.x())
+            window.posYSpinBox.setValue(point.point_pos.y())
+            window.showLabelCheckBox.setChecked(point.label_visible)
+            window.labelTextLineEdit.setText(point.label_text)
+            window.fontSizeSpinBox.setValue(point.font_size)
+            window.boldButton.setChecked(point.label_bold)
+            window.italicButton.setChecked(point.label_italic)
+
         _updating_panel = False
 
     window.propertiesGroupBox.setVisible(False)
@@ -461,6 +562,10 @@ def main():
     window.canvas.vector_created.connect(lambda _: sync_panel())
 
     # --- Properties panel write-back ---
+
+    def _get_selected_item():
+        """Return the selected vector or point (whichever is active)."""
+        return window.canvas.get_selected_vector() or window.canvas.get_selected_point()
 
     def _push_resize(vec, old_tail, old_head, new_tail, new_head):
         """Push a resize command, reverting vector first for consistent redo."""
@@ -509,31 +614,59 @@ def main():
         new_head = QPointF(old_head.x(), val)
         _push_resize(vec, old_tail, old_head, old_tail, new_head)
 
+    def on_pos_x_changed(val):
+        if _updating_panel:
+            return
+        point = window.canvas.get_selected_point()
+        if point is None:
+            return
+        old_pos = point.point_pos
+        new_pos = QPointF(val, old_pos.y())
+        if new_pos == old_pos:
+            return
+        point.set_pos(old_pos)  # revert for consistent redo
+        cmd = MovePointCommand(point, old_pos, new_pos)
+        undo_stack.push(cmd)
+
+    def on_pos_y_changed(val):
+        if _updating_panel:
+            return
+        point = window.canvas.get_selected_point()
+        if point is None:
+            return
+        old_pos = point.point_pos
+        new_pos = QPointF(old_pos.x(), val)
+        if new_pos == old_pos:
+            return
+        point.set_pos(old_pos)  # revert for consistent redo
+        cmd = MovePointCommand(point, old_pos, new_pos)
+        undo_stack.push(cmd)
+
     def on_label_text_changed():
         if _updating_panel:
             return
-        vec = window.canvas.get_selected_vector()
-        if vec is None:
+        item = _get_selected_item()
+        if item is None:
             return
         new_text = window.labelTextLineEdit.text()
-        if new_text == vec.label_text:
+        if new_text == item.label_text:
             return
-        old_text = vec.label_text
-        vec.label_text = old_text  # revert for consistent redo
-        cmd = ChangeLabelTextCommand(vec, old_text, new_text)
+        old_text = item.label_text
+        item.label_text = old_text  # revert for consistent redo
+        cmd = ChangeLabelTextCommand(item, old_text, new_text)
         undo_stack.push(cmd)
 
     def on_show_label_toggled(checked):
         if _updating_panel:
             return
-        vec = window.canvas.get_selected_vector()
-        if vec is None:
+        item = _get_selected_item()
+        if item is None:
             return
-        if checked == vec.label_visible:
+        if checked == item.label_visible:
             return
-        old_vis = vec.label_visible
-        vec.label_visible = old_vis  # revert for consistent redo
-        cmd = ChangeLabelVisibilityCommand(vec, old_vis, checked)
+        old_vis = item.label_visible
+        item.label_visible = old_vis  # revert for consistent redo
+        cmd = ChangeLabelVisibilityCommand(item, old_vis, checked)
         undo_stack.push(cmd)
 
     def on_magnitude_changed(val):
@@ -565,46 +698,48 @@ def main():
     def on_font_size_changed(val):
         if _updating_panel:
             return
-        vec = window.canvas.get_selected_vector()
-        if vec is None:
+        item = _get_selected_item()
+        if item is None:
             return
-        if val == vec.font_size:
+        if val == item.font_size:
             return
-        old_size = vec.font_size
-        vec.font_size = old_size  # revert for consistent redo
-        cmd = ChangeFontSizeCommand(vec, old_size, val)
+        old_size = item.font_size
+        item.font_size = old_size  # revert for consistent redo
+        cmd = ChangeFontSizeCommand(item, old_size, val)
         undo_stack.push(cmd)
 
     def on_bold_toggled(checked):
         if _updating_panel:
             return
-        vec = window.canvas.get_selected_vector()
-        if vec is None:
+        item = _get_selected_item()
+        if item is None:
             return
-        if checked == vec.label_bold:
+        if checked == item.label_bold:
             return
-        old_val = vec.label_bold
-        vec.label_bold = old_val  # revert for consistent redo
-        cmd = ChangeLabelBoldCommand(vec, old_val, checked)
+        old_val = item.label_bold
+        item.label_bold = old_val  # revert for consistent redo
+        cmd = ChangeLabelBoldCommand(item, old_val, checked)
         undo_stack.push(cmd)
 
     def on_italic_toggled(checked):
         if _updating_panel:
             return
-        vec = window.canvas.get_selected_vector()
-        if vec is None:
+        item = _get_selected_item()
+        if item is None:
             return
-        if checked == vec.label_italic:
+        if checked == item.label_italic:
             return
-        old_val = vec.label_italic
-        vec.label_italic = old_val  # revert for consistent redo
-        cmd = ChangeLabelItalicCommand(vec, old_val, checked)
+        old_val = item.label_italic
+        item.label_italic = old_val  # revert for consistent redo
+        cmd = ChangeLabelItalicCommand(item, old_val, checked)
         undo_stack.push(cmd)
 
     window.startXSpinBox.valueChanged.connect(on_start_x_changed)
     window.startYSpinBox.valueChanged.connect(on_start_y_changed)
     window.endXSpinBox.valueChanged.connect(on_end_x_changed)
     window.endYSpinBox.valueChanged.connect(on_end_y_changed)
+    window.posXSpinBox.valueChanged.connect(on_pos_x_changed)
+    window.posYSpinBox.valueChanged.connect(on_pos_y_changed)
     window.magnitudeSpinBox.valueChanged.connect(on_magnitude_changed)
     window.showMagnitudeCheckBox.toggled.connect(on_show_magnitude_toggled)
     window.labelTextLineEdit.editingFinished.connect(on_label_text_changed)
@@ -612,6 +747,17 @@ def main():
     window.fontSizeSpinBox.valueChanged.connect(on_font_size_changed)
     window.boldButton.toggled.connect(on_bold_toggled)
     window.italicButton.toggled.connect(on_italic_toggled)
+
+    # --- Layer visibility checkboxes ---
+    window.backgroundLayerCheckBox.toggled.connect(window.canvas.set_background_visible)
+    window.vectorsLayerCheckBox.toggled.connect(window.canvas.set_vectors_visible)
+    window.pointsLayerCheckBox.toggled.connect(window.canvas.set_points_visible)
+    # Future layers:
+    # window.rectanglesLayerCheckBox.toggled.connect(window.canvas.set_rectangles_visible)
+    # window.circlesLayerCheckBox.toggled.connect(window.canvas.set_circles_visible)
+    # window.directionsLayerCheckBox.toggled.connect(window.canvas.set_directions_visible)
+    # window.momentsLayerCheckBox.toggled.connect(window.canvas.set_moments_visible)
+    # window.linesLayerCheckBox.toggled.connect(window.canvas.set_lines_visible)
 
     # Sync panel after undo/redo so it reflects current state
     undo_stack.indexChanged.connect(lambda _: sync_panel())
