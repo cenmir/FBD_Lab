@@ -175,6 +175,8 @@ class DirectionItem(QGraphicsPathItem):
         self._label_italic = True
         self._show_arrowhead = False
 
+        self._z_order = 0
+
         self.on_modified = None
         self.on_push_undo = None
 
@@ -210,6 +212,18 @@ class DirectionItem(QGraphicsPathItem):
     @property
     def head(self) -> QPointF:
         return QPointF(self._head)
+
+    @property
+    def z_order(self) -> int:
+        return self._z_order
+
+    @z_order.setter
+    def z_order(self, value: int):
+        self._z_order = value
+        self.setZValue(1 + value)
+        self._label.setZValue(5 + value)
+        self._tail_handle.setZValue(10 + value)
+        self._head_handle.setZValue(10 + value)
 
     @property
     def show_arrowhead(self) -> bool:
@@ -375,6 +389,7 @@ class DirectionItem(QGraphicsPathItem):
             "label_bold": self._label_bold,
             "label_italic": self._label_italic,
             "show_arrowhead": self._show_arrowhead,
+            "z_order": self._z_order,
         }
 
     @classmethod
@@ -395,4 +410,7 @@ class DirectionItem(QGraphicsPathItem):
         d._label.update_display()
         d._update_label_visibility()
         d._label.update_position()
+        z = data.get("z_order", 0)
+        if z != 0:
+            d.z_order = z
         return d

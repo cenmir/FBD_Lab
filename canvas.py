@@ -12,7 +12,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtGui import QBrush
 from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
-    QGraphicsRectItem, QGraphicsLineItem, QApplication,
+    QGraphicsRectItem, QGraphicsLineItem, QApplication, QMenu,
 )
 
 from vector_item import VectorItem
@@ -22,6 +22,7 @@ from commands import (
     AddVectorCommand, DeleteVectorCommand, MoveVectorCommand,
     AddPointCommand, DeletePointCommand, MovePointCommand,
     AddDirectionCommand, DeleteDirectionCommand, MoveDirectionCommand,
+    ChangeZValueCommand,
 )
 
 
@@ -629,6 +630,76 @@ class FBDCanvas(QGraphicsView):
                 event.acceptProposedAction()
                 return
         event.ignore()
+
+    # --- Context menu (right-click) ---
+
+    def _find_canvas_item(self, graphics_item):
+        """Find the VectorItem/PointItem/DirectionItem that owns a graphics item."""
+        if isinstance(graphics_item, (VectorItem, PointItem, DirectionItem)):
+            return graphics_item
+        if hasattr(graphics_item, '_vec'):
+            return graphics_item._vec
+        if hasattr(graphics_item, '_point'):
+            return graphics_item._point
+        if hasattr(graphics_item, '_dir'):
+            return graphics_item._dir
+        return None
+
+    def _get_all_items(self):
+        """Return all canvas items (vectors, points, directions)."""
+        return list(self._vectors) + list(self._points) + list(self._directions)
+
+    def _bring_to_front(self, item):
+        all_items = self._get_all_items()
+        max_z = max((i.z_order for i in all_items if i is not item), default=0)
+        new_z = max_z + 1
+        if new_z <= item.z_order:
+            return
+        old_z = item.z_order
+        if self._has_undo_stack():
+            cmd = ChangeZValueCommand(item, old_z, new_z)
+            self._undo_stack.push(cmd)
+        else:
+            item.z_order = new_z
+            self.modified.emit()
+
+    def _send_to_back(self, item):
+        all_items = self._get_all_items()
+        min_z = min((i.z_order for i in all_items if i is not item), default=0)
+        new_z = min_z - 1
+        if new_z >= item.z_order:
+            return
+        old_z = item.z_order
+        if self._has_undo_stack():
+            cmd = ChangeZValueCommand(item, old_z, new_z)
+            self._undo_stack.push(cmd)
+        else:
+            item.z_order = new_z
+            self.modified.emit()
+
+    def contextMenuEvent(self, event):
+        scene_pos = self.mapToScene(event.pos())
+        item = self._scene.itemAt(scene_pos, self.transform())
+        target = self._find_canvas_item(item)
+
+        if target is None:
+            super().contextMenuEvent(event)
+            return
+
+        if not target.isSelected():
+            self._scene.clearSelection()
+            target.setSelected(True)
+            self.selection_changed.emit()
+
+        menu = QMenu(self)
+        bring_front = menu.addAction("Bring to Front")
+        send_back = menu.addAction("Send to Back")
+
+        action = menu.exec(event.globalPos())
+        if action == bring_front:
+            self._bring_to_front(target)
+        elif action == send_back:
+            self._send_to_back(target)
 
     # --- Keyboard ---
 

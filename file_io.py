@@ -18,7 +18,10 @@ MAGIC_HEADER_V3 = b"FBD_BIN_v3"
 MAGIC_HEADER_V4 = b"FBD_BIN_v4"
 MAGIC_HEADER_V5 = b"FBD_BIN_v5"
 MAGIC_HEADER = b"FBD_BIN_v6"
-ALL_MAGIC_HEADERS = (MAGIC_HEADER, MAGIC_HEADER_V5, MAGIC_HEADER_V4, MAGIC_HEADER_V3, MAGIC_HEADER_V2, MAGIC_HEADER_V1)
+# Old intermediate v7/v8 headers (same format as v6 minus z_order)
+MAGIC_HEADER_V8 = b"FBD_BIN_v8"
+MAGIC_HEADER_V7 = b"FBD_BIN_v7"
+ALL_MAGIC_HEADERS = (MAGIC_HEADER, MAGIC_HEADER_V8, MAGIC_HEADER_V7, MAGIC_HEADER_V5, MAGIC_HEADER_V4, MAGIC_HEADER_V3, MAGIC_HEADER_V2, MAGIC_HEADER_V1)
 MAX_IMAGE_BYTES = 100 * 1024 * 1024  # 100 MB sanity limit
 MAX_VECTOR_COUNT = 10_000
 MAX_POINT_COUNT = 10_000
@@ -174,6 +177,8 @@ def _save_fbd_binary(canvas: FBDCanvas, file_path: Path):
             # v4 fields
             f.write(struct.pack("?", v.get("label_bold", True)))
             f.write(struct.pack("?", v.get("label_italic", True)))
+            # v6: z_order
+            f.write(struct.pack("<i", v.get("z_order", 0)))
 
         # v5: Metadata
         meta = canvas.metadata
@@ -203,6 +208,7 @@ def _save_fbd_binary(canvas: FBDCanvas, file_path: Path):
             f.write(struct.pack("<I", p["font_size"]))
             f.write(struct.pack("?", p.get("label_bold", True)))
             f.write(struct.pack("?", p.get("label_italic", True)))
+            f.write(struct.pack("<i", p.get("z_order", 0)))
 
         # v6: Directions
         directions_data = canvas.get_directions_data()
@@ -224,14 +230,18 @@ def _save_fbd_binary(canvas: FBDCanvas, file_path: Path):
             f.write(struct.pack("?", d.get("label_bold", True)))
             f.write(struct.pack("?", d.get("label_italic", True)))
             f.write(struct.pack("?", d.get("show_arrowhead", False)))
+            f.write(struct.pack("<i", d.get("z_order", 0)))
 
 
 def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
     with open(file_path, "rb") as f:
-        # Read header — support v1 through v6
+        # Read header — support v1 through v8
         header = _read_exact(f, len(MAGIC_HEADER))
-        version = 6 if header == MAGIC_HEADER else 0
-        if version == 0:
+        has_z_order = (header == MAGIC_HEADER)
+        if header in (MAGIC_HEADER, MAGIC_HEADER_V8, MAGIC_HEADER_V7):
+            version = 6  # v6/v7/v8 share the same data layout
+        else:
+            version = 0
             f.seek(0)
             header = _read_exact(f, len(MAGIC_HEADER_V5))
             if header == MAGIC_HEADER_V5:
@@ -304,6 +314,10 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
                 label_bold = struct.unpack("?", _read_exact(f, 1))[0]
                 label_italic = struct.unpack("?", _read_exact(f, 1))[0]
 
+            z_order = 0
+            if has_z_order:
+                z_order = struct.unpack("<i", _read_exact(f, 4))[0]
+
             vec = VectorItem.from_dict({
                 "tail": [x1, y1],
                 "head": [x2, y2],
@@ -315,6 +329,7 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
                 "font_size": font_size,
                 "label_bold": label_bold,
                 "label_italic": label_italic,
+                "z_order": z_order,
             })
             canvas.add_vector(vec)
 
@@ -361,6 +376,9 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
                 font_size = struct.unpack("<I", _read_exact(f, 4))[0]
                 label_bold = struct.unpack("?", _read_exact(f, 1))[0]
                 label_italic = struct.unpack("?", _read_exact(f, 1))[0]
+                z_order = 0
+                if has_z_order:
+                    z_order = struct.unpack("<i", _read_exact(f, 4))[0]
 
                 pt = PointItem.from_dict({
                     "pos": [px, py],
@@ -370,6 +388,7 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
                     "font_size": font_size,
                     "label_bold": label_bold,
                     "label_italic": label_italic,
+                    "z_order": z_order,
                 })
                 canvas.add_point(pt)
 
@@ -391,6 +410,9 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
                 label_bold = struct.unpack("?", _read_exact(f, 1))[0]
                 label_italic = struct.unpack("?", _read_exact(f, 1))[0]
                 show_arrowhead = struct.unpack("?", _read_exact(f, 1))[0]
+                z_order = 0
+                if has_z_order:
+                    z_order = struct.unpack("<i", _read_exact(f, 4))[0]
 
                 d = DirectionItem.from_dict({
                     "tail": [x1, y1],
@@ -402,5 +424,6 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
                     "label_bold": label_bold,
                     "label_italic": label_italic,
                     "show_arrowhead": show_arrowhead,
+                    "z_order": z_order,
                 })
                 canvas.add_direction(d)

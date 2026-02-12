@@ -235,6 +235,26 @@ class ResizeDirectionCommand(QUndoCommand):
             self._dir.on_modified()
 
 
+class ChangeZValueCommand(QUndoCommand):
+    """Command to change an item's z-order (Bring to Front / Send to Back)."""
+
+    def __init__(self, item, old_z: int, new_z: int):
+        super().__init__("Change Z-Order")
+        self._item = item
+        self._old_z = old_z
+        self._new_z = new_z
+
+    def redo(self):
+        self._item.z_order = self._new_z
+        if self._item.on_modified:
+            self._item.on_modified()
+
+    def undo(self):
+        self._item.z_order = self._old_z
+        if self._item.on_modified:
+            self._item.on_modified()
+
+
 class ChangeShowArrowheadCommand(QUndoCommand):
     """Command to toggle a direction's arrowhead visibility."""
 

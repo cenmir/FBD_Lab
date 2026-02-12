@@ -126,6 +126,8 @@ class PointItem(QGraphicsEllipseItem):
         self._label_bold = True
         self._label_italic = True
 
+        self._z_order = 0
+
         self.on_modified = None
         self.on_push_undo = None
 
@@ -150,6 +152,16 @@ class PointItem(QGraphicsEllipseItem):
     @property
     def point_pos(self) -> QPointF:
         return QPointF(self._pos)
+
+    @property
+    def z_order(self) -> int:
+        return self._z_order
+
+    @z_order.setter
+    def z_order(self, value: int):
+        self._z_order = value
+        self.setZValue(1 + value)
+        self._label.setZValue(5 + value)
 
     @property
     def label_text(self) -> str:
@@ -262,6 +274,7 @@ class PointItem(QGraphicsEllipseItem):
             "font_size": self._font_size,
             "label_bold": self._label_bold,
             "label_italic": self._label_italic,
+            "z_order": self._z_order,
         }
 
     @classmethod
@@ -278,4 +291,7 @@ class PointItem(QGraphicsEllipseItem):
         pt._label.update_display()
         pt._update_label_visibility()
         pt._label.update_position()
+        z = data.get("z_order", 0)
+        if z != 0:
+            pt.z_order = z
         return pt

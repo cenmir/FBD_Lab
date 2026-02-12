@@ -295,6 +295,8 @@ class VectorItem(QGraphicsPathItem):
         self._label_bold = True
         self._label_italic = True
 
+        self._z_order = 0
+
         self.on_modified = None      # callback: canvas marks dirty
         self.on_push_undo = None     # callback: canvas pushes QUndoCommand
 
@@ -378,6 +380,18 @@ class VectorItem(QGraphicsPathItem):
     def label_italic(self, value: bool):
         self._label_italic = value
         self._label.update_display()
+
+    @property
+    def z_order(self) -> int:
+        return self._z_order
+
+    @z_order.setter
+    def z_order(self, value: int):
+        self._z_order = value
+        self.setZValue(1 + value)
+        self._label.setZValue(5 + value)
+        self._tail_handle.setZValue(10 + value)
+        self._head_handle.setZValue(10 + value)
 
     @property
     def vector_length(self) -> float:
@@ -535,6 +549,7 @@ class VectorItem(QGraphicsPathItem):
             "font_size": self._font_size,
             "label_bold": self._label_bold,
             "label_italic": self._label_italic,
+            "z_order": self._z_order,
         }
 
     @classmethod
@@ -560,4 +575,7 @@ class VectorItem(QGraphicsPathItem):
         vec._label.update_display()
         vec._update_label_visibility()
         vec._label.update_position()
+        z = data.get("z_order", 0)
+        if z != 0:
+            vec.z_order = z
         return vec
