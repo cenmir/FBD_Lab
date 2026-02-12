@@ -4,6 +4,7 @@ from PyQt6.QtGui import QUndoCommand
 from vector_item import VectorItem
 from point_item import PointItem
 from direction_item import DirectionItem
+from line_item import LineItem
 
 
 # ---------------------------------------------------------------------------
@@ -233,6 +234,130 @@ class ResizeDirectionCommand(QUndoCommand):
         self._dir.set_head(self._old_head)
         if self._dir.on_modified:
             self._dir.on_modified()
+
+
+# ---------------------------------------------------------------------------
+# Line commands
+# ---------------------------------------------------------------------------
+
+class AddLineCommand(QUndoCommand):
+    """Command to add a line to the canvas."""
+
+    def __init__(self, canvas, line: LineItem):
+        super().__init__("Add Line")
+        self._canvas = canvas
+        self._line = line
+
+    def redo(self):
+        self._canvas.add_line(self._line)
+        self._canvas.modified.emit()
+
+    def undo(self):
+        self._canvas.remove_line(self._line)
+        self._canvas.modified.emit()
+        self._canvas.selection_changed.emit()
+
+
+class DeleteLineCommand(QUndoCommand):
+    """Command to delete a line from the canvas."""
+
+    def __init__(self, canvas, line: LineItem):
+        super().__init__("Delete Line")
+        self._canvas = canvas
+        self._line = line
+
+    def redo(self):
+        self._canvas.remove_line(self._line)
+        self._canvas.modified.emit()
+        self._canvas.selection_changed.emit()
+
+    def undo(self):
+        self._canvas.add_line(self._line)
+        self._canvas.modified.emit()
+
+
+class MoveLineCommand(QUndoCommand):
+    """Command to move a line by a delta."""
+
+    def __init__(self, line: LineItem, old_tail: QPointF, new_tail: QPointF):
+        super().__init__("Move Line")
+        self._line = line
+        self._delta = new_tail - old_tail
+
+    def redo(self):
+        self._line.move_by(self._delta)
+        if self._line.on_modified:
+            self._line.on_modified()
+
+    def undo(self):
+        self._line.move_by(-self._delta)
+        if self._line.on_modified:
+            self._line.on_modified()
+
+
+class ResizeLineCommand(QUndoCommand):
+    """Command to change a line's tail or head endpoint."""
+
+    def __init__(self, line: LineItem, old_tail: QPointF, old_head: QPointF,
+                 new_tail: QPointF, new_head: QPointF):
+        super().__init__("Resize Line")
+        self._line = line
+        self._old_tail = QPointF(old_tail)
+        self._old_head = QPointF(old_head)
+        self._new_tail = QPointF(new_tail)
+        self._new_head = QPointF(new_head)
+
+    def redo(self):
+        self._line.set_tail(self._new_tail)
+        self._line.set_head(self._new_head)
+        if self._line.on_modified:
+            self._line.on_modified()
+
+    def undo(self):
+        self._line.set_tail(self._old_tail)
+        self._line.set_head(self._old_head)
+        if self._line.on_modified:
+            self._line.on_modified()
+
+
+class ChangeBodyThicknessCommand(QUndoCommand):
+    """Command to change a line's body thickness."""
+
+    def __init__(self, line: LineItem, old_val: int, new_val: int):
+        super().__init__("Change Body Thickness")
+        self._line = line
+        self._old_val = old_val
+        self._new_val = new_val
+
+    def redo(self):
+        self._line.body_thickness = self._new_val
+        if self._line.on_modified:
+            self._line.on_modified()
+
+    def undo(self):
+        self._line.body_thickness = self._old_val
+        if self._line.on_modified:
+            self._line.on_modified()
+
+
+class ChangeOutlineThicknessCommand(QUndoCommand):
+    """Command to change a line's outline thickness."""
+
+    def __init__(self, line: LineItem, old_val: int, new_val: int):
+        super().__init__("Change Outline Thickness")
+        self._line = line
+        self._old_val = old_val
+        self._new_val = new_val
+
+    def redo(self):
+        self._line.outline_thickness = self._new_val
+        if self._line.on_modified:
+            self._line.on_modified()
+
+    def undo(self):
+        self._line.outline_thickness = self._old_val
+        if self._line.on_modified:
+            self._line.on_modified()
 
 
 class ChangeZValueCommand(QUndoCommand):

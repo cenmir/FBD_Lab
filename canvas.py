@@ -18,10 +18,12 @@ from PyQt6.QtWidgets import (
 from vector_item import VectorItem
 from point_item import PointItem
 from direction_item import DirectionItem
+from line_item import LineItem
 from commands import (
     AddVectorCommand, DeleteVectorCommand, MoveVectorCommand,
     AddPointCommand, DeletePointCommand, MovePointCommand,
     AddDirectionCommand, DeleteDirectionCommand, MoveDirectionCommand,
+    AddLineCommand, DeleteLineCommand, MoveLineCommand,
     ChangeZValueCommand,
 )
 
@@ -71,6 +73,7 @@ class ToolMode(Enum):
     VECTOR = auto()
     POINT = auto()
     DIRECTION = auto()
+    LINE = auto()
 
 
 class FBDCanvas(QGraphicsView):
@@ -124,11 +127,20 @@ class FBDCanvas(QGraphicsView):
         self._drag_dir_start_tail: QPointF | None = None
         self._drag_dir_last: QPointF | None = None
 
+        # Lines
+        self._lines: list[LineItem] = []
+
+        # Body-drag state (lines)
+        self._dragging_line: LineItem | None = None
+        self._drag_line_start_tail: QPointF | None = None
+        self._drag_line_last: QPointF | None = None
+
         # Layer visibility flags
         self._bg_visible = True
         self._vectors_visible = True
         self._points_visible = True
         self._directions_visible = True
+        self._lines_visible = True
 
         # Rendering
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -172,6 +184,9 @@ class FBDCanvas(QGraphicsView):
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.setCursor(Qt.CursorShape.CrossCursor)
         elif mode == ToolMode.DIRECTION:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            self.setCursor(Qt.CursorShape.CrossCursor)
+        elif mode == ToolMode.LINE:
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.setCursor(Qt.CursorShape.CrossCursor)
         self.tool_changed.emit(mode)
@@ -322,6 +337,44 @@ class FBDCanvas(QGraphicsView):
         for d in list(self._directions):
             self.remove_direction(d)
 
+    # --- Lines ---
+
+    def add_line(self, line: LineItem):
+        if line not in self._lines:
+            self._scene.addItem(line)
+            line.added_to_scene(self._scene)
+            line.on_modified = lambda: self.modified.emit()
+            if self._has_undo_stack():
+                line.on_push_undo = lambda cmd: self._undo_stack.push(cmd)
+            self._lines.append(line)
+            if not self._lines_visible:
+                line.setVisible(False)
+                line._label.setVisible(False)
+                line._tail_handle.setVisible(False)
+                line._head_handle.setVisible(False)
+
+    def remove_line(self, line: LineItem):
+        if line in self._lines:
+            line.removed_from_scene(self._scene)
+            self._scene.removeItem(line)
+            self._lines.remove(line)
+
+    def get_lines(self) -> list[LineItem]:
+        return list(self._lines)
+
+    def get_lines_data(self) -> list[dict]:
+        return [ln.to_dict() for ln in self._lines]
+
+    def get_selected_line(self) -> LineItem | None:
+        for item in self._scene.selectedItems():
+            if isinstance(item, LineItem):
+                return item
+        return None
+
+    def clear_lines(self):
+        for ln in list(self._lines):
+            self.remove_line(ln)
+
     # --- Layer visibility ---
 
     def set_background_visible(self, visible: bool):
@@ -357,11 +410,15 @@ class FBDCanvas(QGraphicsView):
             d._tail_handle.setVisible(visible)
             d._head_handle.setVisible(visible)
 
-    # Future layers:
-    # def set_rectangles_visible(self, visible: bool): ...
-    # def set_circles_visible(self, visible: bool): ...
-    # def set_moments_visible(self, visible: bool): ...
-    # def set_lines_visible(self, visible: bool): ...
+    def set_lines_visible(self, visible: bool):
+        self._lines_visible = visible
+        for ln in self._lines:
+            ln.setVisible(visible)
+            ln._label.setVisible(
+                visible and ln._label_visible and bool(ln._label_text)
+            )
+            ln._tail_handle.setVisible(visible)
+            ln._head_handle.setVisible(visible)
 
     # --- Snapping ---
 
@@ -402,6 +459,16 @@ class FBDCanvas(QGraphicsView):
 
             # Direction creation mode (same click-drag as vector)
             if self._tool == ToolMode.DIRECTION:
+                self._drawing = True
+                self._draw_start = self.mapToScene(event.pos())
+                self._preview_line = QGraphicsLineItem()
+                self._preview_line.setPen(QPen(QColor(0, 0, 0, 180), 2, Qt.PenStyle.DashLine))
+                self._preview_line.setZValue(100)
+                self._scene.addItem(self._preview_line)
+                return
+
+            # Line creation mode (same click-drag as vector)
+            if self._tool == ToolMode.LINE:
                 self._drawing = True
                 self._draw_start = self.mapToScene(event.pos())
                 self._preview_line = QGraphicsLineItem()
@@ -458,6 +525,14 @@ class FBDCanvas(QGraphicsView):
                         self._scene.clearSelection()
                         item.setSelected(True)
                     return
+                if isinstance(item, LineItem):
+                    self._dragging_line = item
+                    self._drag_line_start_tail = QPointF(item.tail)
+                    self._drag_line_last = scene_pos
+                    if not item.isSelected():
+                        self._scene.clearSelection()
+                        item.setSelected(True)
+                    return
 
         super().mousePressEvent(event)
 
@@ -497,6 +572,14 @@ class FBDCanvas(QGraphicsView):
             self._drag_dir_last = scene_pos
             return
 
+        # Line body drag
+        if self._dragging_line and self._drag_line_last:
+            scene_pos = self.mapToScene(event.pos())
+            delta = scene_pos - self._drag_line_last
+            self._dragging_line.move_by(delta)
+            self._drag_line_last = scene_pos
+            return
+
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
@@ -528,6 +611,16 @@ class FBDCanvas(QGraphicsView):
                                 self.modified.emit()
                             self._scene.clearSelection()
                             d.setSelected(True)
+                        elif creating_tool == ToolMode.LINE:
+                            ln = LineItem(self._draw_start, end)
+                            if self._has_undo_stack():
+                                cmd = AddLineCommand(self, ln)
+                                self._undo_stack.push(cmd)
+                            else:
+                                self.add_line(ln)
+                                self.modified.emit()
+                            self._scene.clearSelection()
+                            ln.setSelected(True)
                         else:
                             vec = VectorItem(self._draw_start, end)
                             vec.label_text = f"F_{len(self._vectors) + 1}"
@@ -602,6 +695,25 @@ class FBDCanvas(QGraphicsView):
                 self.selection_changed.emit()
                 return
 
+            # Finish line body drag
+            if self._dragging_line:
+                ln = self._dragging_line
+                self._dragging_line = None
+                self._drag_line_last = None
+
+                if self._has_undo_stack() and self._drag_line_start_tail and ln.tail != self._drag_line_start_tail:
+                    current_tail = QPointF(ln.tail)
+                    original_tail = self._drag_line_start_tail
+                    ln.move_by(original_tail - current_tail)
+                    cmd = MoveLineCommand(ln, original_tail, current_tail)
+                    self._undo_stack.push(cmd)
+                else:
+                    self.modified.emit()
+
+                self._drag_line_start_tail = None
+                self.selection_changed.emit()
+                return
+
         super().mouseReleaseEvent(event)
 
     # --- Selection ---
@@ -634,8 +746,8 @@ class FBDCanvas(QGraphicsView):
     # --- Context menu (right-click) ---
 
     def _find_canvas_item(self, graphics_item):
-        """Find the VectorItem/PointItem/DirectionItem that owns a graphics item."""
-        if isinstance(graphics_item, (VectorItem, PointItem, DirectionItem)):
+        """Find the VectorItem/PointItem/DirectionItem/LineItem that owns a graphics item."""
+        if isinstance(graphics_item, (VectorItem, PointItem, DirectionItem, LineItem)):
             return graphics_item
         if hasattr(graphics_item, '_vec'):
             return graphics_item._vec
@@ -643,11 +755,13 @@ class FBDCanvas(QGraphicsView):
             return graphics_item._point
         if hasattr(graphics_item, '_dir'):
             return graphics_item._dir
+        if hasattr(graphics_item, '_line'):
+            return graphics_item._line
         return None
 
     def _get_all_items(self):
-        """Return all canvas items (vectors, points, directions)."""
-        return list(self._vectors) + list(self._points) + list(self._directions)
+        """Return all canvas items (vectors, points, directions, lines)."""
+        return list(self._vectors) + list(self._points) + list(self._directions) + list(self._lines)
 
     def _bring_to_front(self, item):
         all_items = self._get_all_items()
@@ -733,6 +847,17 @@ class FBDCanvas(QGraphicsView):
                 self._undo_stack.push(cmd)
             else:
                 self.remove_direction(direction)
+                self.modified.emit()
+                self.selection_changed.emit()
+            return
+
+        line = self.get_selected_line()
+        if line:
+            if self._has_undo_stack():
+                cmd = DeleteLineCommand(self, line)
+                self._undo_stack.push(cmd)
+            else:
+                self.remove_line(line)
                 self.modified.emit()
                 self.selection_changed.emit()
 

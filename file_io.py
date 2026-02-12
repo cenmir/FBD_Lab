@@ -10,6 +10,7 @@ from canvas import FBDCanvas, SessionMetadata
 from vector_item import VectorItem, DEFAULT_MAGNITUDE, DEFAULT_FONT_SIZE
 from point_item import PointItem
 from direction_item import DirectionItem
+from line_item import LineItem
 
 FBD_VERSION = 1
 MAGIC_HEADER_V1 = b"FBD_BIN_v1"
@@ -26,6 +27,7 @@ MAX_IMAGE_BYTES = 100 * 1024 * 1024  # 100 MB sanity limit
 MAX_VECTOR_COUNT = 10_000
 MAX_POINT_COUNT = 10_000
 MAX_DIRECTION_COUNT = 10_000
+MAX_LINE_COUNT = 10_000
 MAX_LABEL_BYTES = 10_000
 
 
@@ -97,6 +99,7 @@ def _save_fbd_json(canvas: FBDCanvas, file_path: Path):
         "arrows": canvas.get_vectors_data(),
         "points": canvas.get_points_data(),
         "directions": canvas.get_directions_data(),
+        "lines": canvas.get_lines_data(),
         "metadata": canvas.metadata.to_dict(),
     }
     file_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -110,6 +113,7 @@ def _load_fbd_json(canvas: FBDCanvas, file_path: Path):
     canvas.clear_vectors()
     canvas.clear_points()
     canvas.clear_directions()
+    canvas.clear_lines()
 
     # Restore background
     bg_data = data.get("background_image")
@@ -132,6 +136,11 @@ def _load_fbd_json(canvas: FBDCanvas, file_path: Path):
     for dir_data in data.get("directions", []):
         d = DirectionItem.from_dict(dir_data)
         canvas.add_direction(d)
+
+    # Restore lines
+    for line_data in data.get("lines", []):
+        ln = LineItem.from_dict(line_data)
+        canvas.add_line(ln)
 
     # Restore metadata
     meta_data = data.get("metadata")
@@ -232,6 +241,28 @@ def _save_fbd_binary(canvas: FBDCanvas, file_path: Path):
             f.write(struct.pack("?", d.get("show_arrowhead", False)))
             f.write(struct.pack("<i", d.get("z_order", 0)))
 
+        # v6: Lines
+        lines_data = canvas.get_lines_data()
+        f.write(struct.pack("<I", len(lines_data)))
+
+        for ln in lines_data:
+            f.write(struct.pack("<4f",
+                ln["tail"][0], ln["tail"][1],
+                ln["head"][0], ln["head"][1],
+            ))
+            label_bytes = ln["label_text"].encode("utf-8")
+            f.write(struct.pack("<I", len(label_bytes)))
+            f.write(label_bytes)
+            f.write(struct.pack("?", ln["label_visible"]))
+            f.write(struct.pack("<2f",
+                ln["label_offset"][0], ln["label_offset"][1],
+            ))
+            f.write(struct.pack("<I", ln["font_size"]))
+            f.write(struct.pack("?", ln.get("label_bold", True)))
+            f.write(struct.pack("?", ln.get("label_italic", True)))
+            f.write(struct.pack("<2I", ln.get("body_thickness", 10), ln.get("outline_thickness", 2)))
+            f.write(struct.pack("<i", ln.get("z_order", 0)))
+
 
 def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
     with open(file_path, "rb") as f:
@@ -261,6 +292,7 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
         canvas.clear_vectors()
         canvas.clear_points()
         canvas.clear_directions()
+        canvas.clear_lines()
 
         # Background image
         img_len = struct.unpack("<I", _read_exact(f, 4))[0]
@@ -427,3 +459,40 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
                     "z_order": z_order,
                 })
                 canvas.add_direction(d)
+
+        # v6: Lines (may not exist in older files)
+        if version >= 6:
+            remaining = f.read(4)
+            if len(remaining) == 4:
+                line_count = struct.unpack("<I", remaining)[0]
+                if line_count > MAX_LINE_COUNT:
+                    raise ValueError(f"Line count {line_count} exceeds maximum ({MAX_LINE_COUNT})")
+
+                for _ in range(line_count):
+                    x1, y1, x2, y2 = struct.unpack("<4f", _read_exact(f, 16))
+                    lbl_len = struct.unpack("<I", _read_exact(f, 4))[0]
+                    if lbl_len > MAX_LABEL_BYTES:
+                        raise ValueError(f"Label size {lbl_len} exceeds maximum ({MAX_LABEL_BYTES})")
+                    label_text = _read_exact(f, lbl_len).decode("utf-8")
+                    label_visible = struct.unpack("?", _read_exact(f, 1))[0]
+                    ox, oy = struct.unpack("<2f", _read_exact(f, 8))
+                    font_size = struct.unpack("<I", _read_exact(f, 4))[0]
+                    label_bold = struct.unpack("?", _read_exact(f, 1))[0]
+                    label_italic = struct.unpack("?", _read_exact(f, 1))[0]
+                    body_thickness, outline_thickness = struct.unpack("<2I", _read_exact(f, 8))
+                    z_order = struct.unpack("<i", _read_exact(f, 4))[0]
+
+                    ln = LineItem.from_dict({
+                        "tail": [x1, y1],
+                        "head": [x2, y2],
+                        "label_text": label_text,
+                        "label_visible": label_visible,
+                        "label_offset": [ox, oy],
+                        "font_size": font_size,
+                        "label_bold": label_bold,
+                        "label_italic": label_italic,
+                        "body_thickness": body_thickness,
+                        "outline_thickness": outline_thickness,
+                        "z_order": z_order,
+                    })
+                    canvas.add_line(ln)

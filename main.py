@@ -23,12 +23,14 @@ from PyQt6 import uic
 from canvas import FBDCanvas, ToolMode, SessionMetadata  # noqa: F401 — FBDCanvas needed for uic promotion
 from vector_item import vector_settings
 from point_item import point_settings, POINT_COLORS
+from line_item import line_settings
 from commands import (
     ResizeVectorCommand, ChangeLabelTextCommand, ChangeLabelVisibilityCommand,
     ChangeMagnitudeCommand, ChangeShowMagnitudeCommand, ChangeFontSizeCommand,
     ChangeLabelBoldCommand, ChangeLabelItalicCommand,
     MovePointCommand,
     ResizeDirectionCommand, ChangeShowArrowheadCommand,
+    ResizeLineCommand, ChangeBodyThicknessCommand, ChangeOutlineThicknessCommand,
 )
 from file_io import save_fbd, load_fbd
 
@@ -241,6 +243,7 @@ def main():
         window.canvas.clear_vectors()
         window.canvas.clear_points()
         window.canvas.clear_directions()
+        window.canvas.clear_lines()
         window.canvas.set_background(QPixmap())
         _init_new_metadata()
         current_file = None
@@ -433,6 +436,25 @@ def main():
 
     cb_point_color.currentTextChanged.connect(_on_point_color)
 
+    # --- Line Settings toolbar ---
+    line_toolbar = QToolBar("Line Settings", window)
+    line_toolbar.setFixedHeight(50)
+    line_toolbar.setMovable(False)
+    window.addToolBar(line_toolbar)
+    line_toolbar.setVisible(False)
+
+    sb_line_handle = _make_toolbar_spinbox(line_toolbar, "Handle:", line_settings.handle_radius, 2, 20)
+
+    def _refresh_all_lines():
+        for ln in window.canvas.get_lines():
+            ln.refresh_style()
+
+    def _on_line_handle(v):
+        line_settings.handle_radius = v
+        _refresh_all_lines()
+
+    sb_line_handle.valueChanged.connect(_on_line_handle)
+
     # --- "Shape Format" menu on menu bar ---
     shape_format_menu = QMenu("Shape Format", window)
     window.menubar.addMenu(shape_format_menu)
@@ -446,6 +468,11 @@ def main():
     toggle_point_toolbar.setCheckable(True)
     toggle_point_toolbar.toggled.connect(point_toolbar.setVisible)
     shape_format_menu.addAction(toggle_point_toolbar)
+
+    toggle_line_toolbar = QAction("Line Settings", window)
+    toggle_line_toolbar.setCheckable(True)
+    toggle_line_toolbar.toggled.connect(line_toolbar.setVisible)
+    shape_format_menu.addAction(toggle_line_toolbar)
 
     # --- Tool creation toggles ---
     def on_vector_toggle(checked):
@@ -466,26 +493,38 @@ def main():
         else:
             window.canvas.set_tool(ToolMode.SELECT)
 
+    def on_line_toggle(checked):
+        if checked:
+            window.canvas.set_tool(ToolMode.LINE)
+        else:
+            window.canvas.set_tool(ToolMode.SELECT)
+
     window.vectorToolButton.toggled.connect(on_vector_toggle)
     window.pointToolButton.toggled.connect(on_point_toggle)
     window.directionToolButton.toggled.connect(on_direction_toggle)
+    window.lineToolButton.toggled.connect(on_line_toggle)
 
     def on_tool_changed(mode):
         window.vectorToolButton.blockSignals(True)
         window.pointToolButton.blockSignals(True)
         window.directionToolButton.blockSignals(True)
+        window.lineToolButton.blockSignals(True)
         window.vectorToolButton.setChecked(mode == ToolMode.VECTOR)
         window.pointToolButton.setChecked(mode == ToolMode.POINT)
         window.directionToolButton.setChecked(mode == ToolMode.DIRECTION)
+        window.lineToolButton.setChecked(mode == ToolMode.LINE)
         window.vectorToolButton.blockSignals(False)
         window.pointToolButton.blockSignals(False)
         window.directionToolButton.blockSignals(False)
+        window.lineToolButton.blockSignals(False)
         if mode == ToolMode.VECTOR:
             window.statusbar.showMessage("Vector creation mode — click and drag to draw")
         elif mode == ToolMode.POINT:
             window.statusbar.showMessage("Point creation mode — click to place a point")
         elif mode == ToolMode.DIRECTION:
             window.statusbar.showMessage("Direction creation mode — click and drag to draw")
+        elif mode == ToolMode.LINE:
+            window.statusbar.showMessage("Line creation mode — click and drag to draw")
         else:
             window.statusbar.showMessage("Ready")
 
@@ -504,6 +543,10 @@ def main():
     # "D" shortcut to toggle direction mode
     shortcut_d = QShortcut(QKeySequence("D"), window)
     shortcut_d.activated.connect(lambda: window.directionToolButton.toggle())
+
+    # "L" shortcut to toggle line mode
+    shortcut_l = QShortcut(QKeySequence("L"), window)
+    shortcut_l.activated.connect(lambda: window.lineToolButton.toggle())
 
     # Delete action
     window.actionDelete.triggered.connect(window.canvas.delete_selected)
@@ -529,6 +572,10 @@ def main():
     _direction_only_widgets = [
         window.showArrowheadLabel, window.showArrowheadCheckBox,
     ]
+    _line_only_widgets = [
+        window.bodyThicknessLabel, window.bodyThicknessSpinBox,
+        window.outlineThicknessLabel, window.outlineThicknessSpinBox,
+    ]
 
     def sync_panel():
         nonlocal _updating_panel
@@ -536,10 +583,11 @@ def main():
             vec = window.canvas.get_selected_vector()
             point = window.canvas.get_selected_point()
             direction = window.canvas.get_selected_direction()
+            line = window.canvas.get_selected_line()
         except RuntimeError:
             return  # scene already destroyed during shutdown
 
-        if vec is None and point is None and direction is None:
+        if vec is None and point is None and direction is None and line is None:
             window.propertiesGroupBox.setVisible(False)
             return
 
@@ -547,7 +595,7 @@ def main():
         _updating_panel = True
 
         # Hide all conditional widget groups first
-        for w in _start_end_widgets + _magnitude_widgets + _point_only_widgets + _direction_only_widgets:
+        for w in _start_end_widgets + _magnitude_widgets + _point_only_widgets + _direction_only_widgets + _line_only_widgets:
             w.setVisible(False)
 
         if vec is not None:
@@ -593,6 +641,22 @@ def main():
             window.boldButton.setChecked(point.label_bold)
             window.italicButton.setChecked(point.label_italic)
 
+        elif line is not None:
+            for w in _start_end_widgets + _line_only_widgets:
+                w.setVisible(True)
+
+            window.startXSpinBox.setValue(line.tail.x())
+            window.startYSpinBox.setValue(line.tail.y())
+            window.endXSpinBox.setValue(line.head.x())
+            window.endYSpinBox.setValue(line.head.y())
+            window.bodyThicknessSpinBox.setValue(line.body_thickness)
+            window.outlineThicknessSpinBox.setValue(line.outline_thickness)
+            window.showLabelCheckBox.setChecked(line.label_visible)
+            window.labelTextLineEdit.setText(line.label_text)
+            window.fontSizeSpinBox.setValue(line.font_size)
+            window.boldButton.setChecked(line.label_bold)
+            window.italicButton.setChecked(line.label_italic)
+
         _updating_panel = False
 
     window.propertiesGroupBox.setVisible(False)
@@ -603,22 +667,28 @@ def main():
     # --- Properties panel write-back ---
 
     def _get_selected_item():
-        """Return the selected vector, direction, or point (whichever is active)."""
+        """Return the selected vector, direction, line, or point (whichever is active)."""
         return (window.canvas.get_selected_vector()
                 or window.canvas.get_selected_direction()
+                or window.canvas.get_selected_line()
                 or window.canvas.get_selected_point())
 
     def _get_selected_line_item():
-        """Return the selected vector or direction (items with tail/head)."""
-        return window.canvas.get_selected_vector() or window.canvas.get_selected_direction()
+        """Return the selected vector, direction, or line (items with tail/head)."""
+        return (window.canvas.get_selected_vector()
+                or window.canvas.get_selected_direction()
+                or window.canvas.get_selected_line())
 
     def _push_resize(item, old_tail, old_head, new_tail, new_head):
         """Push a resize command, reverting item first for consistent redo."""
         from direction_item import DirectionItem
+        from line_item import LineItem
         item.set_tail(old_tail)
         item.set_head(old_head)
         if isinstance(item, DirectionItem):
             cmd = ResizeDirectionCommand(item, old_tail, old_head, new_tail, new_head)
+        elif isinstance(item, LineItem):
+            cmd = ResizeLineCommand(item, old_tail, old_head, new_tail, new_head)
         else:
             cmd = ResizeVectorCommand(item, old_tail, old_head, new_tail, new_head)
         undo_stack.push(cmd)
@@ -810,18 +880,42 @@ def main():
     window.fontSizeSpinBox.valueChanged.connect(on_font_size_changed)
     window.boldButton.toggled.connect(on_bold_toggled)
     window.italicButton.toggled.connect(on_italic_toggled)
+    def on_body_thickness_changed(val):
+        if _updating_panel:
+            return
+        line = window.canvas.get_selected_line()
+        if line is None:
+            return
+        if val == line.body_thickness:
+            return
+        old_val = line.body_thickness
+        line.body_thickness = old_val  # revert for consistent redo
+        cmd = ChangeBodyThicknessCommand(line, old_val, val)
+        undo_stack.push(cmd)
+
+    def on_outline_thickness_changed(val):
+        if _updating_panel:
+            return
+        line = window.canvas.get_selected_line()
+        if line is None:
+            return
+        if val == line.outline_thickness:
+            return
+        old_val = line.outline_thickness
+        line.outline_thickness = old_val  # revert for consistent redo
+        cmd = ChangeOutlineThicknessCommand(line, old_val, val)
+        undo_stack.push(cmd)
+
     window.showArrowheadCheckBox.toggled.connect(on_show_arrowhead_toggled)
+    window.bodyThicknessSpinBox.valueChanged.connect(on_body_thickness_changed)
+    window.outlineThicknessSpinBox.valueChanged.connect(on_outline_thickness_changed)
 
     # --- Layer visibility checkboxes ---
     window.backgroundLayerCheckBox.toggled.connect(window.canvas.set_background_visible)
     window.vectorsLayerCheckBox.toggled.connect(window.canvas.set_vectors_visible)
     window.pointsLayerCheckBox.toggled.connect(window.canvas.set_points_visible)
     window.directionsLayerCheckBox.toggled.connect(window.canvas.set_directions_visible)
-    # Future layers:
-    # window.rectanglesLayerCheckBox.toggled.connect(window.canvas.set_rectangles_visible)
-    # window.circlesLayerCheckBox.toggled.connect(window.canvas.set_circles_visible)
-    # window.momentsLayerCheckBox.toggled.connect(window.canvas.set_moments_visible)
-    # window.linesLayerCheckBox.toggled.connect(window.canvas.set_lines_visible)
+    window.linesLayerCheckBox.toggled.connect(window.canvas.set_lines_visible)
 
     # Sync panel after undo/redo so it reflects current state
     undo_stack.indexChanged.connect(lambda _: sync_panel())
