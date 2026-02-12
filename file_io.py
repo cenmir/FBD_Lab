@@ -11,6 +11,7 @@ from vector_item import VectorItem, DEFAULT_MAGNITUDE, DEFAULT_FONT_SIZE
 from point_item import PointItem
 from direction_item import DirectionItem
 from line_item import LineItem
+from moment_item import MomentItem
 
 FBD_VERSION = 1
 MAGIC_HEADER_V1 = b"FBD_BIN_v1"
@@ -28,6 +29,7 @@ MAX_VECTOR_COUNT = 10_000
 MAX_POINT_COUNT = 10_000
 MAX_DIRECTION_COUNT = 10_000
 MAX_LINE_COUNT = 10_000
+MAX_MOMENT_COUNT = 10_000
 MAX_LABEL_BYTES = 10_000
 
 
@@ -100,6 +102,7 @@ def _save_fbd_json(canvas: FBDCanvas, file_path: Path):
         "points": canvas.get_points_data(),
         "directions": canvas.get_directions_data(),
         "lines": canvas.get_lines_data(),
+        "moments": canvas.get_moments_data(),
         "metadata": canvas.metadata.to_dict(),
     }
     file_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -114,6 +117,7 @@ def _load_fbd_json(canvas: FBDCanvas, file_path: Path):
     canvas.clear_points()
     canvas.clear_directions()
     canvas.clear_lines()
+    canvas.clear_moments()
 
     # Restore background
     bg_data = data.get("background_image")
@@ -141,6 +145,11 @@ def _load_fbd_json(canvas: FBDCanvas, file_path: Path):
     for line_data in data.get("lines", []):
         ln = LineItem.from_dict(line_data)
         canvas.add_line(ln)
+
+    # Restore moments
+    for mom_data in data.get("moments", []):
+        m = MomentItem.from_dict(mom_data)
+        canvas.add_moment(m)
 
     # Restore metadata
     meta_data = data.get("metadata")
@@ -263,6 +272,26 @@ def _save_fbd_binary(canvas: FBDCanvas, file_path: Path):
             f.write(struct.pack("<2I", ln.get("body_thickness", 10), ln.get("outline_thickness", 2)))
             f.write(struct.pack("<i", ln.get("z_order", 0)))
 
+        # v6: Moments
+        moments_data = canvas.get_moments_data()
+        f.write(struct.pack("<I", len(moments_data)))
+
+        for m in moments_data:
+            f.write(struct.pack("<2f", m["center"][0], m["center"][1]))
+            f.write(struct.pack("<f", m["radius"]))
+            f.write(struct.pack("<2f", m["start_angle"], m["span_angle"]))
+            label_bytes = m["label_text"].encode("utf-8")
+            f.write(struct.pack("<I", len(label_bytes)))
+            f.write(label_bytes)
+            f.write(struct.pack("?", m["label_visible"]))
+            f.write(struct.pack("<2f",
+                m["label_offset"][0], m["label_offset"][1],
+            ))
+            f.write(struct.pack("<I", m["font_size"]))
+            f.write(struct.pack("?", m.get("label_bold", True)))
+            f.write(struct.pack("?", m.get("label_italic", True)))
+            f.write(struct.pack("<i", m.get("z_order", 0)))
+
 
 def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
     with open(file_path, "rb") as f:
@@ -293,6 +322,7 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
         canvas.clear_points()
         canvas.clear_directions()
         canvas.clear_lines()
+        canvas.clear_moments()
 
         # Background image
         img_len = struct.unpack("<I", _read_exact(f, 4))[0]
@@ -496,3 +526,40 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
                         "z_order": z_order,
                     })
                     canvas.add_line(ln)
+
+                # v6: Moments (may not exist in older files)
+                remaining2 = f.read(4)
+                if len(remaining2) == 4:
+                    moment_count = struct.unpack("<I", remaining2)[0]
+                    if moment_count > MAX_MOMENT_COUNT:
+                        raise ValueError(f"Moment count {moment_count} exceeds maximum ({MAX_MOMENT_COUNT})")
+
+                    for _ in range(moment_count):
+                        cx, cy = struct.unpack("<2f", _read_exact(f, 8))
+                        radius = struct.unpack("<f", _read_exact(f, 4))[0]
+                        start_angle, span_angle = struct.unpack("<2f", _read_exact(f, 8))
+                        lbl_len = struct.unpack("<I", _read_exact(f, 4))[0]
+                        if lbl_len > MAX_LABEL_BYTES:
+                            raise ValueError(f"Label size {lbl_len} exceeds maximum ({MAX_LABEL_BYTES})")
+                        label_text = _read_exact(f, lbl_len).decode("utf-8")
+                        label_visible = struct.unpack("?", _read_exact(f, 1))[0]
+                        ox, oy = struct.unpack("<2f", _read_exact(f, 8))
+                        font_size = struct.unpack("<I", _read_exact(f, 4))[0]
+                        label_bold = struct.unpack("?", _read_exact(f, 1))[0]
+                        label_italic = struct.unpack("?", _read_exact(f, 1))[0]
+                        z_order = struct.unpack("<i", _read_exact(f, 4))[0]
+
+                        m = MomentItem.from_dict({
+                            "center": [cx, cy],
+                            "radius": radius,
+                            "start_angle": start_angle,
+                            "span_angle": span_angle,
+                            "label_text": label_text,
+                            "label_visible": label_visible,
+                            "label_offset": [ox, oy],
+                            "font_size": font_size,
+                            "label_bold": label_bold,
+                            "label_italic": label_italic,
+                            "z_order": z_order,
+                        })
+                        canvas.add_moment(m)

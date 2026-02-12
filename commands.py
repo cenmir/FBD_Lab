@@ -5,6 +5,7 @@ from vector_item import VectorItem
 from point_item import PointItem
 from direction_item import DirectionItem
 from line_item import LineItem
+from moment_item import MomentItem
 
 
 # ---------------------------------------------------------------------------
@@ -358,6 +359,109 @@ class ChangeOutlineThicknessCommand(QUndoCommand):
         self._line.outline_thickness = self._old_val
         if self._line.on_modified:
             self._line.on_modified()
+
+
+# ---------------------------------------------------------------------------
+# Moment commands
+# ---------------------------------------------------------------------------
+
+class AddMomentCommand(QUndoCommand):
+    """Command to add a moment to the canvas."""
+
+    def __init__(self, canvas, moment: MomentItem):
+        super().__init__("Add Moment")
+        self._canvas = canvas
+        self._moment = moment
+
+    def redo(self):
+        self._canvas.add_moment(self._moment)
+        self._canvas.modified.emit()
+
+    def undo(self):
+        self._canvas.remove_moment(self._moment)
+        self._canvas.modified.emit()
+        self._canvas.selection_changed.emit()
+
+
+class DeleteMomentCommand(QUndoCommand):
+    """Command to delete a moment from the canvas."""
+
+    def __init__(self, canvas, moment: MomentItem):
+        super().__init__("Delete Moment")
+        self._canvas = canvas
+        self._moment = moment
+
+    def redo(self):
+        self._canvas.remove_moment(self._moment)
+        self._canvas.modified.emit()
+        self._canvas.selection_changed.emit()
+
+    def undo(self):
+        self._canvas.add_moment(self._moment)
+        self._canvas.modified.emit()
+
+
+class MoveMomentCommand(QUndoCommand):
+    """Command to move a moment's center."""
+
+    def __init__(self, moment: MomentItem, old_center: QPointF, new_center: QPointF):
+        super().__init__("Move Moment")
+        self._moment = moment
+        self._old_center = QPointF(old_center)
+        self._new_center = QPointF(new_center)
+
+    def redo(self):
+        self._moment.set_center(self._new_center)
+        if self._moment.on_modified:
+            self._moment.on_modified()
+
+    def undo(self):
+        self._moment.set_center(self._old_center)
+        if self._moment.on_modified:
+            self._moment.on_modified()
+
+
+class ChangeRadiusCommand(QUndoCommand):
+    """Command to change a moment's radius."""
+
+    def __init__(self, moment: MomentItem, old_radius: float, new_radius: float):
+        super().__init__("Change Radius")
+        self._moment = moment
+        self._old_radius = old_radius
+        self._new_radius = new_radius
+
+    def redo(self):
+        self._moment.set_radius(self._new_radius)
+        if self._moment.on_modified:
+            self._moment.on_modified()
+
+    def undo(self):
+        self._moment.set_radius(self._old_radius)
+        if self._moment.on_modified:
+            self._moment.on_modified()
+
+
+class ChangeAnglesCommand(QUndoCommand):
+    """Command to change a moment's start and span angles."""
+
+    def __init__(self, moment: MomentItem, old_start: float, old_span: float,
+                 new_start: float, new_span: float):
+        super().__init__("Change Angles")
+        self._moment = moment
+        self._old_start = old_start
+        self._old_span = old_span
+        self._new_start = new_start
+        self._new_span = new_span
+
+    def redo(self):
+        self._moment.set_angles(self._new_start, self._new_span)
+        if self._moment.on_modified:
+            self._moment.on_modified()
+
+    def undo(self):
+        self._moment.set_angles(self._old_start, self._old_span)
+        if self._moment.on_modified:
+            self._moment.on_modified()
 
 
 class ChangeZValueCommand(QUndoCommand):

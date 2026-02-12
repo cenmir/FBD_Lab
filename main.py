@@ -24,6 +24,7 @@ from canvas import FBDCanvas, ToolMode, SessionMetadata  # noqa: F401 — FBDCan
 from vector_item import vector_settings
 from point_item import point_settings, POINT_COLORS
 from line_item import line_settings
+from moment_item import moment_settings
 from commands import (
     ResizeVectorCommand, ChangeLabelTextCommand, ChangeLabelVisibilityCommand,
     ChangeMagnitudeCommand, ChangeShowMagnitudeCommand, ChangeFontSizeCommand,
@@ -31,6 +32,7 @@ from commands import (
     MovePointCommand,
     ResizeDirectionCommand, ChangeShowArrowheadCommand,
     ResizeLineCommand, ChangeBodyThicknessCommand, ChangeOutlineThicknessCommand,
+    MoveMomentCommand, ChangeRadiusCommand, ChangeAnglesCommand,
 )
 from file_io import save_fbd, load_fbd
 
@@ -244,6 +246,7 @@ def main():
         window.canvas.clear_points()
         window.canvas.clear_directions()
         window.canvas.clear_lines()
+        window.canvas.clear_moments()
         window.canvas.set_background(QPixmap())
         _init_new_metadata()
         current_file = None
@@ -455,6 +458,49 @@ def main():
 
     sb_line_handle.valueChanged.connect(_on_line_handle)
 
+    # --- Moment Settings toolbar ---
+    moment_toolbar = QToolBar("Moment Settings", window)
+    moment_toolbar.setFixedHeight(50)
+    moment_toolbar.setMovable(False)
+    window.addToolBar(moment_toolbar)
+    moment_toolbar.setVisible(False)
+
+    sb_arc_thick = _make_toolbar_spinbox(moment_toolbar, "Arc:", moment_settings.arc_thickness, 1, 10)
+    sb_ah_len = _make_toolbar_spinbox(moment_toolbar, "Head Len:", moment_settings.arrowhead_length, 4, 30)
+    sb_ah_wid = _make_toolbar_spinbox(moment_toolbar, "Head Wid:", moment_settings.arrowhead_width, 4, 30)
+    sb_m_handle = _make_toolbar_spinbox(moment_toolbar, "Handle:", moment_settings.handle_radius, 2, 20)
+    sb_m_center = _make_toolbar_spinbox(moment_toolbar, "Center:", moment_settings.center_radius, 1, 20)
+
+    def _refresh_all_moments():
+        for m in window.canvas.get_moments():
+            m.refresh_style()
+
+    def _on_arc_thick(v):
+        moment_settings.arc_thickness = v
+        _refresh_all_moments()
+
+    def _on_ah_len(v):
+        moment_settings.arrowhead_length = v
+        _refresh_all_moments()
+
+    def _on_ah_wid(v):
+        moment_settings.arrowhead_width = v
+        _refresh_all_moments()
+
+    def _on_m_handle(v):
+        moment_settings.handle_radius = v
+        _refresh_all_moments()
+
+    def _on_m_center(v):
+        moment_settings.center_radius = v
+        _refresh_all_moments()
+
+    sb_arc_thick.valueChanged.connect(_on_arc_thick)
+    sb_ah_len.valueChanged.connect(_on_ah_len)
+    sb_ah_wid.valueChanged.connect(_on_ah_wid)
+    sb_m_handle.valueChanged.connect(_on_m_handle)
+    sb_m_center.valueChanged.connect(_on_m_center)
+
     # --- "Shape Format" menu on menu bar ---
     shape_format_menu = QMenu("Shape Format", window)
     window.menubar.addMenu(shape_format_menu)
@@ -473,6 +519,11 @@ def main():
     toggle_line_toolbar.setCheckable(True)
     toggle_line_toolbar.toggled.connect(line_toolbar.setVisible)
     shape_format_menu.addAction(toggle_line_toolbar)
+
+    toggle_moment_toolbar = QAction("Moment Settings", window)
+    toggle_moment_toolbar.setCheckable(True)
+    toggle_moment_toolbar.toggled.connect(moment_toolbar.setVisible)
+    shape_format_menu.addAction(toggle_moment_toolbar)
 
     # --- Tool creation toggles ---
     def on_vector_toggle(checked):
@@ -499,24 +550,34 @@ def main():
         else:
             window.canvas.set_tool(ToolMode.SELECT)
 
+    def on_moment_toggle(checked):
+        if checked:
+            window.canvas.set_tool(ToolMode.MOMENT)
+        else:
+            window.canvas.set_tool(ToolMode.SELECT)
+
     window.vectorToolButton.toggled.connect(on_vector_toggle)
     window.pointToolButton.toggled.connect(on_point_toggle)
     window.directionToolButton.toggled.connect(on_direction_toggle)
     window.lineToolButton.toggled.connect(on_line_toggle)
+    window.momentToolButton.toggled.connect(on_moment_toggle)
 
     def on_tool_changed(mode):
         window.vectorToolButton.blockSignals(True)
         window.pointToolButton.blockSignals(True)
         window.directionToolButton.blockSignals(True)
         window.lineToolButton.blockSignals(True)
+        window.momentToolButton.blockSignals(True)
         window.vectorToolButton.setChecked(mode == ToolMode.VECTOR)
         window.pointToolButton.setChecked(mode == ToolMode.POINT)
         window.directionToolButton.setChecked(mode == ToolMode.DIRECTION)
         window.lineToolButton.setChecked(mode == ToolMode.LINE)
+        window.momentToolButton.setChecked(mode == ToolMode.MOMENT)
         window.vectorToolButton.blockSignals(False)
         window.pointToolButton.blockSignals(False)
         window.directionToolButton.blockSignals(False)
         window.lineToolButton.blockSignals(False)
+        window.momentToolButton.blockSignals(False)
         if mode == ToolMode.VECTOR:
             window.statusbar.showMessage("Vector creation mode — click and drag to draw")
         elif mode == ToolMode.POINT:
@@ -525,6 +586,8 @@ def main():
             window.statusbar.showMessage("Direction creation mode — click and drag to draw")
         elif mode == ToolMode.LINE:
             window.statusbar.showMessage("Line creation mode — click and drag to draw")
+        elif mode == ToolMode.MOMENT:
+            window.statusbar.showMessage("Moment creation mode — click and drag to set center and radius")
         else:
             window.statusbar.showMessage("Ready")
 
@@ -547,6 +610,10 @@ def main():
     # "L" shortcut to toggle line mode
     shortcut_l = QShortcut(QKeySequence("L"), window)
     shortcut_l.activated.connect(lambda: window.lineToolButton.toggle())
+
+    # "M" shortcut to toggle moment mode
+    shortcut_m = QShortcut(QKeySequence("M"), window)
+    shortcut_m.activated.connect(lambda: window.momentToolButton.toggle())
 
     # Delete action
     window.actionDelete.triggered.connect(window.canvas.delete_selected)
@@ -576,6 +643,13 @@ def main():
         window.bodyThicknessLabel, window.bodyThicknessSpinBox,
         window.outlineThicknessLabel, window.outlineThicknessSpinBox,
     ]
+    _moment_only_widgets = [
+        window.centerXLabel, window.centerXSpinBox,
+        window.centerYLabel, window.centerYSpinBox,
+        window.radiusLabel, window.radiusSpinBox,
+        window.startAngleLabel, window.startAngleSpinBox,
+        window.spanAngleLabel, window.spanAngleSpinBox,
+    ]
 
     def sync_panel():
         nonlocal _updating_panel
@@ -584,10 +658,11 @@ def main():
             point = window.canvas.get_selected_point()
             direction = window.canvas.get_selected_direction()
             line = window.canvas.get_selected_line()
+            moment = window.canvas.get_selected_moment()
         except RuntimeError:
             return  # scene already destroyed during shutdown
 
-        if vec is None and point is None and direction is None and line is None:
+        if vec is None and point is None and direction is None and line is None and moment is None:
             window.propertiesGroupBox.setVisible(False)
             return
 
@@ -595,7 +670,7 @@ def main():
         _updating_panel = True
 
         # Hide all conditional widget groups first
-        for w in _start_end_widgets + _magnitude_widgets + _point_only_widgets + _direction_only_widgets + _line_only_widgets:
+        for w in _start_end_widgets + _magnitude_widgets + _point_only_widgets + _direction_only_widgets + _line_only_widgets + _moment_only_widgets:
             w.setVisible(False)
 
         if vec is not None:
@@ -657,6 +732,21 @@ def main():
             window.boldButton.setChecked(line.label_bold)
             window.italicButton.setChecked(line.label_italic)
 
+        elif moment is not None:
+            for w in _moment_only_widgets:
+                w.setVisible(True)
+
+            window.centerXSpinBox.setValue(moment.center.x())
+            window.centerYSpinBox.setValue(moment.center.y())
+            window.radiusSpinBox.setValue(moment.radius)
+            window.startAngleSpinBox.setValue(moment.start_angle)
+            window.spanAngleSpinBox.setValue(moment.span_angle)
+            window.showLabelCheckBox.setChecked(moment.label_visible)
+            window.labelTextLineEdit.setText(moment.label_text)
+            window.fontSizeSpinBox.setValue(moment.font_size)
+            window.boldButton.setChecked(moment.label_bold)
+            window.italicButton.setChecked(moment.label_italic)
+
         _updating_panel = False
 
     window.propertiesGroupBox.setVisible(False)
@@ -667,11 +757,12 @@ def main():
     # --- Properties panel write-back ---
 
     def _get_selected_item():
-        """Return the selected vector, direction, line, or point (whichever is active)."""
+        """Return the selected vector, direction, line, point, or moment (whichever is active)."""
         return (window.canvas.get_selected_vector()
                 or window.canvas.get_selected_direction()
                 or window.canvas.get_selected_line()
-                or window.canvas.get_selected_point())
+                or window.canvas.get_selected_point()
+                or window.canvas.get_selected_moment())
 
     def _get_selected_line_item():
         """Return the selected vector, direction, or line (items with tail/head)."""
@@ -906,9 +997,83 @@ def main():
         cmd = ChangeOutlineThicknessCommand(line, old_val, val)
         undo_stack.push(cmd)
 
+    def on_center_x_changed(val):
+        if _updating_panel:
+            return
+        moment = window.canvas.get_selected_moment()
+        if moment is None:
+            return
+        old_center = moment.center
+        new_center = QPointF(val, old_center.y())
+        if new_center == old_center:
+            return
+        moment.set_center(old_center)  # revert for consistent redo
+        cmd = MoveMomentCommand(moment, old_center, new_center)
+        undo_stack.push(cmd)
+
+    def on_center_y_changed(val):
+        if _updating_panel:
+            return
+        moment = window.canvas.get_selected_moment()
+        if moment is None:
+            return
+        old_center = moment.center
+        new_center = QPointF(old_center.x(), val)
+        if new_center == old_center:
+            return
+        moment.set_center(old_center)  # revert for consistent redo
+        cmd = MoveMomentCommand(moment, old_center, new_center)
+        undo_stack.push(cmd)
+
+    def on_radius_changed(val):
+        if _updating_panel:
+            return
+        moment = window.canvas.get_selected_moment()
+        if moment is None:
+            return
+        if val == moment.radius:
+            return
+        old_radius = moment.radius
+        moment.set_radius(old_radius)  # revert for consistent redo
+        cmd = ChangeRadiusCommand(moment, old_radius, val)
+        undo_stack.push(cmd)
+
+    def on_start_angle_changed(val):
+        if _updating_panel:
+            return
+        moment = window.canvas.get_selected_moment()
+        if moment is None:
+            return
+        old_start = moment.start_angle
+        old_span = moment.span_angle
+        if val == old_start:
+            return
+        moment.set_angles(old_start, old_span)  # revert for consistent redo
+        cmd = ChangeAnglesCommand(moment, old_start, old_span, val, old_span)
+        undo_stack.push(cmd)
+
+    def on_span_angle_changed(val):
+        if _updating_panel:
+            return
+        moment = window.canvas.get_selected_moment()
+        if moment is None:
+            return
+        old_start = moment.start_angle
+        old_span = moment.span_angle
+        if val == old_span:
+            return
+        moment.set_angles(old_start, old_span)  # revert for consistent redo
+        cmd = ChangeAnglesCommand(moment, old_start, old_span, old_start, val)
+        undo_stack.push(cmd)
+
     window.showArrowheadCheckBox.toggled.connect(on_show_arrowhead_toggled)
     window.bodyThicknessSpinBox.valueChanged.connect(on_body_thickness_changed)
     window.outlineThicknessSpinBox.valueChanged.connect(on_outline_thickness_changed)
+    window.centerXSpinBox.valueChanged.connect(on_center_x_changed)
+    window.centerYSpinBox.valueChanged.connect(on_center_y_changed)
+    window.radiusSpinBox.valueChanged.connect(on_radius_changed)
+    window.startAngleSpinBox.valueChanged.connect(on_start_angle_changed)
+    window.spanAngleSpinBox.valueChanged.connect(on_span_angle_changed)
 
     # --- Layer visibility checkboxes ---
     window.backgroundLayerCheckBox.toggled.connect(window.canvas.set_background_visible)
@@ -916,6 +1081,7 @@ def main():
     window.pointsLayerCheckBox.toggled.connect(window.canvas.set_points_visible)
     window.directionsLayerCheckBox.toggled.connect(window.canvas.set_directions_visible)
     window.linesLayerCheckBox.toggled.connect(window.canvas.set_lines_visible)
+    window.momentsLayerCheckBox.toggled.connect(window.canvas.set_moments_visible)
 
     # Sync panel after undo/redo so it reflects current state
     undo_stack.indexChanged.connect(lambda _: sync_panel())

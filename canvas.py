@@ -19,11 +19,13 @@ from vector_item import VectorItem
 from point_item import PointItem
 from direction_item import DirectionItem
 from line_item import LineItem
+from moment_item import MomentItem
 from commands import (
     AddVectorCommand, DeleteVectorCommand, MoveVectorCommand,
     AddPointCommand, DeletePointCommand, MovePointCommand,
     AddDirectionCommand, DeleteDirectionCommand, MoveDirectionCommand,
     AddLineCommand, DeleteLineCommand, MoveLineCommand,
+    AddMomentCommand, DeleteMomentCommand, ChangeRadiusCommand,
     ChangeZValueCommand,
 )
 
@@ -74,6 +76,7 @@ class ToolMode(Enum):
     POINT = auto()
     DIRECTION = auto()
     LINE = auto()
+    MOMENT = auto()
 
 
 class FBDCanvas(QGraphicsView):
@@ -135,12 +138,20 @@ class FBDCanvas(QGraphicsView):
         self._drag_line_start_tail: QPointF | None = None
         self._drag_line_last: QPointF | None = None
 
+        # Moments
+        self._moments: list[MomentItem] = []
+
+        # Radius-drag state (moments)
+        self._dragging_moment_radius: MomentItem | None = None
+        self._drag_moment_old_radius: float | None = None
+
         # Layer visibility flags
         self._bg_visible = True
         self._vectors_visible = True
         self._points_visible = True
         self._directions_visible = True
         self._lines_visible = True
+        self._moments_visible = True
 
         # Rendering
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -174,21 +185,11 @@ class FBDCanvas(QGraphicsView):
 
     def set_tool(self, mode: ToolMode):
         self._tool = mode
+        self.setDragMode(QGraphicsView.DragMode.NoDrag)
         if mode == ToolMode.SELECT:
-            self.setDragMode(QGraphicsView.DragMode.NoDrag)
-            self.setCursor(Qt.CursorShape.ArrowCursor)
-        elif mode == ToolMode.VECTOR:
-            self.setDragMode(QGraphicsView.DragMode.NoDrag)
-            self.setCursor(Qt.CursorShape.CrossCursor)
-        elif mode == ToolMode.POINT:
-            self.setDragMode(QGraphicsView.DragMode.NoDrag)
-            self.setCursor(Qt.CursorShape.CrossCursor)
-        elif mode == ToolMode.DIRECTION:
-            self.setDragMode(QGraphicsView.DragMode.NoDrag)
-            self.setCursor(Qt.CursorShape.CrossCursor)
-        elif mode == ToolMode.LINE:
-            self.setDragMode(QGraphicsView.DragMode.NoDrag)
-            self.setCursor(Qt.CursorShape.CrossCursor)
+            self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+        else:
+            self.viewport().setCursor(Qt.CursorShape.CrossCursor)
         self.tool_changed.emit(mode)
 
     # --- Background ---
@@ -375,6 +376,45 @@ class FBDCanvas(QGraphicsView):
         for ln in list(self._lines):
             self.remove_line(ln)
 
+    # --- Moments ---
+
+    def add_moment(self, moment: MomentItem):
+        if moment not in self._moments:
+            self._scene.addItem(moment)
+            moment.added_to_scene(self._scene)
+            moment.on_modified = lambda: self.modified.emit()
+            if self._has_undo_stack():
+                moment.on_push_undo = lambda cmd: self._undo_stack.push(cmd)
+            self._moments.append(moment)
+            if not self._moments_visible:
+                moment.setVisible(False)
+                moment._label.setVisible(False)
+                moment._center_marker.setVisible(False)
+                moment._start_handle.setVisible(False)
+                moment._end_handle.setVisible(False)
+
+    def remove_moment(self, moment: MomentItem):
+        if moment in self._moments:
+            moment.removed_from_scene(self._scene)
+            self._scene.removeItem(moment)
+            self._moments.remove(moment)
+
+    def get_moments(self) -> list[MomentItem]:
+        return list(self._moments)
+
+    def get_moments_data(self) -> list[dict]:
+        return [m.to_dict() for m in self._moments]
+
+    def get_selected_moment(self) -> MomentItem | None:
+        for item in self._scene.selectedItems():
+            if isinstance(item, MomentItem):
+                return item
+        return None
+
+    def clear_moments(self):
+        for m in list(self._moments):
+            self.remove_moment(m)
+
     # --- Layer visibility ---
 
     def set_background_visible(self, visible: bool):
@@ -419,6 +459,17 @@ class FBDCanvas(QGraphicsView):
             )
             ln._tail_handle.setVisible(visible)
             ln._head_handle.setVisible(visible)
+
+    def set_moments_visible(self, visible: bool):
+        self._moments_visible = visible
+        for m in self._moments:
+            m.setVisible(visible)
+            m._label.setVisible(
+                visible and m._label_visible and bool(m._label_text)
+            )
+            m._center_marker.setVisible(visible)
+            m._start_handle.setVisible(visible and m.isSelected())
+            m._end_handle.setVisible(visible and m.isSelected())
 
     # --- Snapping ---
 
@@ -473,6 +524,16 @@ class FBDCanvas(QGraphicsView):
                 self._draw_start = self.mapToScene(event.pos())
                 self._preview_line = QGraphicsLineItem()
                 self._preview_line.setPen(QPen(QColor(0, 0, 0, 180), 2, Qt.PenStyle.DashLine))
+                self._preview_line.setZValue(100)
+                self._scene.addItem(self._preview_line)
+                return
+
+            # Moment creation mode (click-drag: click = center, drag distance = radius)
+            if self._tool == ToolMode.MOMENT:
+                self._drawing = True
+                self._draw_start = self.mapToScene(event.pos())
+                self._preview_line = QGraphicsLineItem()
+                self._preview_line.setPen(QPen(QColor(220, 50, 50, 180), 2, Qt.PenStyle.DashLine))
                 self._preview_line.setZValue(100)
                 self._scene.addItem(self._preview_line)
                 return
@@ -533,6 +594,14 @@ class FBDCanvas(QGraphicsView):
                         self._scene.clearSelection()
                         item.setSelected(True)
                     return
+                if isinstance(item, MomentItem):
+                    # Clicking on the arc body starts a radius drag
+                    self._dragging_moment_radius = item
+                    self._drag_moment_old_radius = item.radius
+                    if not item.isSelected():
+                        self._scene.clearSelection()
+                        item.setSelected(True)
+                    return
 
         super().mousePressEvent(event)
 
@@ -580,6 +649,18 @@ class FBDCanvas(QGraphicsView):
             self._drag_line_last = scene_pos
             return
 
+        # Moment radius drag
+        if self._dragging_moment_radius:
+            import math
+            scene_pos = self.mapToScene(event.pos())
+            center = self._dragging_moment_radius.center
+            new_radius = max(10.0, math.hypot(
+                scene_pos.x() - center.x(),
+                scene_pos.y() - center.y(),
+            ))
+            self._dragging_moment_radius.set_radius(new_radius)
+            return
+
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
@@ -611,6 +692,23 @@ class FBDCanvas(QGraphicsView):
                                 self.modified.emit()
                             self._scene.clearSelection()
                             d.setSelected(True)
+                        elif creating_tool == ToolMode.MOMENT:
+                            import math
+                            center = self._draw_start
+                            radius = math.hypot(dx, dy)
+                            if radius < 10:
+                                radius = 50.0
+                            m = MomentItem(center, radius)
+                            m.label_text = f"M_{len(self._moments) + 1}"
+                            m.label_visible = True
+                            if self._has_undo_stack():
+                                cmd = AddMomentCommand(self, m)
+                                self._undo_stack.push(cmd)
+                            else:
+                                self.add_moment(m)
+                                self.modified.emit()
+                            self._scene.clearSelection()
+                            m.setSelected(True)
                         elif creating_tool == ToolMode.LINE:
                             ln = LineItem(self._draw_start, end)
                             if self._has_undo_stack():
@@ -714,6 +812,23 @@ class FBDCanvas(QGraphicsView):
                 self.selection_changed.emit()
                 return
 
+            # Finish moment radius drag
+            if self._dragging_moment_radius:
+                moment = self._dragging_moment_radius
+                self._dragging_moment_radius = None
+                if self._has_undo_stack() and self._drag_moment_old_radius is not None:
+                    new_radius = moment.radius
+                    old_radius = self._drag_moment_old_radius
+                    if new_radius != old_radius:
+                        moment.set_radius(old_radius)
+                        cmd = ChangeRadiusCommand(moment, old_radius, new_radius)
+                        self._undo_stack.push(cmd)
+                else:
+                    self.modified.emit()
+                self._drag_moment_old_radius = None
+                self.selection_changed.emit()
+                return
+
         super().mouseReleaseEvent(event)
 
     # --- Selection ---
@@ -746,8 +861,8 @@ class FBDCanvas(QGraphicsView):
     # --- Context menu (right-click) ---
 
     def _find_canvas_item(self, graphics_item):
-        """Find the VectorItem/PointItem/DirectionItem/LineItem that owns a graphics item."""
-        if isinstance(graphics_item, (VectorItem, PointItem, DirectionItem, LineItem)):
+        """Find the VectorItem/PointItem/DirectionItem/LineItem/MomentItem that owns a graphics item."""
+        if isinstance(graphics_item, (VectorItem, PointItem, DirectionItem, LineItem, MomentItem)):
             return graphics_item
         if hasattr(graphics_item, '_vec'):
             return graphics_item._vec
@@ -757,11 +872,13 @@ class FBDCanvas(QGraphicsView):
             return graphics_item._dir
         if hasattr(graphics_item, '_line'):
             return graphics_item._line
+        if hasattr(graphics_item, '_moment'):
+            return graphics_item._moment
         return None
 
     def _get_all_items(self):
-        """Return all canvas items (vectors, points, directions, lines)."""
-        return list(self._vectors) + list(self._points) + list(self._directions) + list(self._lines)
+        """Return all canvas items (vectors, points, directions, lines, moments)."""
+        return list(self._vectors) + list(self._points) + list(self._directions) + list(self._lines) + list(self._moments)
 
     def _bring_to_front(self, item):
         all_items = self._get_all_items()
@@ -858,6 +975,17 @@ class FBDCanvas(QGraphicsView):
                 self._undo_stack.push(cmd)
             else:
                 self.remove_line(line)
+                self.modified.emit()
+                self.selection_changed.emit()
+            return
+
+        moment = self.get_selected_moment()
+        if moment:
+            if self._has_undo_stack():
+                cmd = DeleteMomentCommand(self, moment)
+                self._undo_stack.push(cmd)
+            else:
+                self.remove_moment(moment)
                 self.modified.emit()
                 self.selection_changed.emit()
 
