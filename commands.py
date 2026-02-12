@@ -1,325 +1,126 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QUndoCommand
 
-from vector_item import VectorItem
-from point_item import PointItem
-from direction_item import DirectionItem
-from line_item import LineItem
-from moment_item import MomentItem
+if TYPE_CHECKING:
+    from direction_item import DirectionItem
+    from line_item import LineItem
+    from moment_item import MomentItem
+    from vector_item import VectorItem
 
 
 # ---------------------------------------------------------------------------
-# Vector commands
+# Generic commands (replace per-type Add/Delete/Move/Resize)
 # ---------------------------------------------------------------------------
 
-class AddVectorCommand(QUndoCommand):
-    """Command to add a vector to the canvas."""
+class AddItemCommand(QUndoCommand):
+    """Command to add any item to the canvas via the registry."""
 
-    def __init__(self, canvas, vec: VectorItem):
-        super().__init__("Add Vector")
+    def __init__(self, canvas, item, type_key: str):
+        super().__init__(f"Add {type_key.rstrip('s').title()}")
         self._canvas = canvas
-        self._vec = vec
-        canvas._metadata.total_arrows_created += 1
+        self._item = item
+        self._type_key = type_key
 
     def redo(self):
-        self._canvas.add_vector(self._vec)
+        self._canvas._add_item(self._type_key, self._item)
         self._canvas.modified.emit()
 
     def undo(self):
-        self._canvas.remove_vector(self._vec)
+        self._canvas._remove_item(self._type_key, self._item)
         self._canvas.modified.emit()
         self._canvas.selection_changed.emit()
 
 
-class DeleteVectorCommand(QUndoCommand):
-    """Command to delete a vector from the canvas."""
+class DeleteItemCommand(QUndoCommand):
+    """Command to delete any item from the canvas via the registry."""
 
-    def __init__(self, canvas, vec: VectorItem):
-        super().__init__("Delete Vector")
+    def __init__(self, canvas, item, type_key: str):
+        super().__init__(f"Delete {type_key.rstrip('s').title()}")
         self._canvas = canvas
-        self._vec = vec
-        canvas._metadata.total_arrows_deleted += 1
+        self._item = item
+        self._type_key = type_key
 
     def redo(self):
-        self._canvas.remove_vector(self._vec)
+        self._canvas._remove_item(self._type_key, self._item)
         self._canvas.modified.emit()
         self._canvas.selection_changed.emit()
 
     def undo(self):
-        self._canvas.add_vector(self._vec)
+        self._canvas._add_item(self._type_key, self._item)
         self._canvas.modified.emit()
 
 
-class MoveVectorCommand(QUndoCommand):
-    """Command to move an entire vector by a delta."""
+class MoveItemCommand(QUndoCommand):
+    """Command to move any item by a delta (uses item.move_by)."""
 
-    def __init__(self, vec: VectorItem, old_tail: QPointF, new_tail: QPointF):
-        super().__init__("Move Vector")
-        self._vec = vec
-        self._delta = new_tail - old_tail
+    def __init__(self, item, old_anchor: QPointF, new_anchor: QPointF):
+        super().__init__("Move Item")
+        self._item = item
+        self._delta = new_anchor - old_anchor
 
     def redo(self):
-        self._vec.move_by(self._delta)
-        if self._vec.on_modified:
-            self._vec.on_modified()
+        self._item.move_by(self._delta)
+        if self._item.on_modified:
+            self._item.on_modified()
 
     def undo(self):
-        self._vec.move_by(-self._delta)
-        if self._vec.on_modified:
-            self._vec.on_modified()
+        self._item.move_by(-self._delta)
+        if self._item.on_modified:
+            self._item.on_modified()
 
 
-class ResizeVectorCommand(QUndoCommand):
-    """Command to change a vector's tail or head endpoint."""
+class ResizeItemCommand(QUndoCommand):
+    """Generic command to change any item's tail/head endpoints."""
 
-    def __init__(self, vec: VectorItem, old_tail: QPointF, old_head: QPointF,
+    def __init__(self, item, old_tail: QPointF, old_head: QPointF,
                  new_tail: QPointF, new_head: QPointF):
-        super().__init__("Resize Vector")
-        self._vec = vec
+        super().__init__("Resize Item")
+        self._item = item
         self._old_tail = QPointF(old_tail)
         self._old_head = QPointF(old_head)
         self._new_tail = QPointF(new_tail)
         self._new_head = QPointF(new_head)
 
     def redo(self):
-        self._vec.set_tail(self._new_tail)
-        self._vec.set_head(self._new_head)
-        if self._vec.on_modified:
-            self._vec.on_modified()
+        self._item.set_tail(self._new_tail)
+        self._item.set_head(self._new_head)
+        if self._item.on_modified:
+            self._item.on_modified()
 
     def undo(self):
-        self._vec.set_tail(self._old_tail)
-        self._vec.set_head(self._old_head)
-        if self._vec.on_modified:
-            self._vec.on_modified()
+        self._item.set_tail(self._old_tail)
+        self._item.set_head(self._old_head)
+        if self._item.on_modified:
+            self._item.on_modified()
+
+
+# Backward-compatible aliases for main.py / moment_item.py imports
+AddVectorCommand = AddItemCommand       # used as AddItemCommand(canvas, vec, 'vectors')
+DeleteVectorCommand = DeleteItemCommand
+MoveVectorCommand = MoveItemCommand
+ResizeVectorCommand = ResizeItemCommand
+AddPointCommand = AddItemCommand
+DeletePointCommand = DeleteItemCommand
+MovePointCommand = MoveItemCommand
+AddDirectionCommand = AddItemCommand
+DeleteDirectionCommand = DeleteItemCommand
+MoveDirectionCommand = MoveItemCommand
+ResizeDirectionCommand = ResizeItemCommand
+AddLineCommand = AddItemCommand
+DeleteLineCommand = DeleteItemCommand
+MoveLineCommand = MoveItemCommand
+ResizeLineCommand = ResizeItemCommand
+AddMomentCommand = AddItemCommand
+DeleteMomentCommand = DeleteItemCommand
 
 
 # ---------------------------------------------------------------------------
-# Point commands
+# Line-specific commands
 # ---------------------------------------------------------------------------
-
-class AddPointCommand(QUndoCommand):
-    """Command to add a point to the canvas."""
-
-    def __init__(self, canvas, point: PointItem):
-        super().__init__("Add Point")
-        self._canvas = canvas
-        self._point = point
-
-    def redo(self):
-        self._canvas.add_point(self._point)
-        self._canvas.modified.emit()
-
-    def undo(self):
-        self._canvas.remove_point(self._point)
-        self._canvas.modified.emit()
-        self._canvas.selection_changed.emit()
-
-
-class DeletePointCommand(QUndoCommand):
-    """Command to delete a point from the canvas."""
-
-    def __init__(self, canvas, point: PointItem):
-        super().__init__("Delete Point")
-        self._canvas = canvas
-        self._point = point
-
-    def redo(self):
-        self._canvas.remove_point(self._point)
-        self._canvas.modified.emit()
-        self._canvas.selection_changed.emit()
-
-    def undo(self):
-        self._canvas.add_point(self._point)
-        self._canvas.modified.emit()
-
-
-class MovePointCommand(QUndoCommand):
-    """Command to move a point by a delta."""
-
-    def __init__(self, point: PointItem, old_pos: QPointF, new_pos: QPointF):
-        super().__init__("Move Point")
-        self._point = point
-        self._delta = new_pos - old_pos
-
-    def redo(self):
-        self._point.move_by(self._delta)
-        if self._point.on_modified:
-            self._point.on_modified()
-
-    def undo(self):
-        self._point.move_by(-self._delta)
-        if self._point.on_modified:
-            self._point.on_modified()
-
-
-# ---------------------------------------------------------------------------
-# Direction commands
-# ---------------------------------------------------------------------------
-
-class AddDirectionCommand(QUndoCommand):
-    """Command to add a direction to the canvas."""
-
-    def __init__(self, canvas, direction: DirectionItem):
-        super().__init__("Add Direction")
-        self._canvas = canvas
-        self._dir = direction
-
-    def redo(self):
-        self._canvas.add_direction(self._dir)
-        self._canvas.modified.emit()
-
-    def undo(self):
-        self._canvas.remove_direction(self._dir)
-        self._canvas.modified.emit()
-        self._canvas.selection_changed.emit()
-
-
-class DeleteDirectionCommand(QUndoCommand):
-    """Command to delete a direction from the canvas."""
-
-    def __init__(self, canvas, direction: DirectionItem):
-        super().__init__("Delete Direction")
-        self._canvas = canvas
-        self._dir = direction
-
-    def redo(self):
-        self._canvas.remove_direction(self._dir)
-        self._canvas.modified.emit()
-        self._canvas.selection_changed.emit()
-
-    def undo(self):
-        self._canvas.add_direction(self._dir)
-        self._canvas.modified.emit()
-
-
-class MoveDirectionCommand(QUndoCommand):
-    """Command to move a direction by a delta."""
-
-    def __init__(self, direction: DirectionItem, old_tail: QPointF, new_tail: QPointF):
-        super().__init__("Move Direction")
-        self._dir = direction
-        self._delta = new_tail - old_tail
-
-    def redo(self):
-        self._dir.move_by(self._delta)
-        if self._dir.on_modified:
-            self._dir.on_modified()
-
-    def undo(self):
-        self._dir.move_by(-self._delta)
-        if self._dir.on_modified:
-            self._dir.on_modified()
-
-
-class ResizeDirectionCommand(QUndoCommand):
-    """Command to change a direction's tail or head endpoint."""
-
-    def __init__(self, direction: DirectionItem, old_tail: QPointF, old_head: QPointF,
-                 new_tail: QPointF, new_head: QPointF):
-        super().__init__("Resize Direction")
-        self._dir = direction
-        self._old_tail = QPointF(old_tail)
-        self._old_head = QPointF(old_head)
-        self._new_tail = QPointF(new_tail)
-        self._new_head = QPointF(new_head)
-
-    def redo(self):
-        self._dir.set_tail(self._new_tail)
-        self._dir.set_head(self._new_head)
-        if self._dir.on_modified:
-            self._dir.on_modified()
-
-    def undo(self):
-        self._dir.set_tail(self._old_tail)
-        self._dir.set_head(self._old_head)
-        if self._dir.on_modified:
-            self._dir.on_modified()
-
-
-# ---------------------------------------------------------------------------
-# Line commands
-# ---------------------------------------------------------------------------
-
-class AddLineCommand(QUndoCommand):
-    """Command to add a line to the canvas."""
-
-    def __init__(self, canvas, line: LineItem):
-        super().__init__("Add Line")
-        self._canvas = canvas
-        self._line = line
-
-    def redo(self):
-        self._canvas.add_line(self._line)
-        self._canvas.modified.emit()
-
-    def undo(self):
-        self._canvas.remove_line(self._line)
-        self._canvas.modified.emit()
-        self._canvas.selection_changed.emit()
-
-
-class DeleteLineCommand(QUndoCommand):
-    """Command to delete a line from the canvas."""
-
-    def __init__(self, canvas, line: LineItem):
-        super().__init__("Delete Line")
-        self._canvas = canvas
-        self._line = line
-
-    def redo(self):
-        self._canvas.remove_line(self._line)
-        self._canvas.modified.emit()
-        self._canvas.selection_changed.emit()
-
-    def undo(self):
-        self._canvas.add_line(self._line)
-        self._canvas.modified.emit()
-
-
-class MoveLineCommand(QUndoCommand):
-    """Command to move a line by a delta."""
-
-    def __init__(self, line: LineItem, old_tail: QPointF, new_tail: QPointF):
-        super().__init__("Move Line")
-        self._line = line
-        self._delta = new_tail - old_tail
-
-    def redo(self):
-        self._line.move_by(self._delta)
-        if self._line.on_modified:
-            self._line.on_modified()
-
-    def undo(self):
-        self._line.move_by(-self._delta)
-        if self._line.on_modified:
-            self._line.on_modified()
-
-
-class ResizeLineCommand(QUndoCommand):
-    """Command to change a line's tail or head endpoint."""
-
-    def __init__(self, line: LineItem, old_tail: QPointF, old_head: QPointF,
-                 new_tail: QPointF, new_head: QPointF):
-        super().__init__("Resize Line")
-        self._line = line
-        self._old_tail = QPointF(old_tail)
-        self._old_head = QPointF(old_head)
-        self._new_tail = QPointF(new_tail)
-        self._new_head = QPointF(new_head)
-
-    def redo(self):
-        self._line.set_tail(self._new_tail)
-        self._line.set_head(self._new_head)
-        if self._line.on_modified:
-            self._line.on_modified()
-
-    def undo(self):
-        self._line.set_tail(self._old_tail)
-        self._line.set_head(self._old_head)
-        if self._line.on_modified:
-            self._line.on_modified()
-
 
 class ChangeBodyThicknessCommand(QUndoCommand):
     """Command to change a line's body thickness."""
@@ -362,44 +163,8 @@ class ChangeOutlineThicknessCommand(QUndoCommand):
 
 
 # ---------------------------------------------------------------------------
-# Moment commands
+# Moment-specific commands
 # ---------------------------------------------------------------------------
-
-class AddMomentCommand(QUndoCommand):
-    """Command to add a moment to the canvas."""
-
-    def __init__(self, canvas, moment: MomentItem):
-        super().__init__("Add Moment")
-        self._canvas = canvas
-        self._moment = moment
-
-    def redo(self):
-        self._canvas.add_moment(self._moment)
-        self._canvas.modified.emit()
-
-    def undo(self):
-        self._canvas.remove_moment(self._moment)
-        self._canvas.modified.emit()
-        self._canvas.selection_changed.emit()
-
-
-class DeleteMomentCommand(QUndoCommand):
-    """Command to delete a moment from the canvas."""
-
-    def __init__(self, canvas, moment: MomentItem):
-        super().__init__("Delete Moment")
-        self._canvas = canvas
-        self._moment = moment
-
-    def redo(self):
-        self._canvas.remove_moment(self._moment)
-        self._canvas.modified.emit()
-        self._canvas.selection_changed.emit()
-
-    def undo(self):
-        self._canvas.add_moment(self._moment)
-        self._canvas.modified.emit()
-
 
 class MoveMomentCommand(QUndoCommand):
     """Command to move a moment's center."""

@@ -8,13 +8,13 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QGraphicsItem, QGraphicsPathItem, QGraphicsEllipseItem,
-    QGraphicsTextItem, QStyleOptionGraphicsItem, QWidget,
-    QApplication, QGraphicsSceneMouseEvent,
+    QStyleOptionGraphicsItem, QWidget,
+    QGraphicsSceneMouseEvent,
 )
 
-from vector_item import (
-    label_to_html, get_cm_font,
-    LABEL_COLOR, SELECTED_COLOR, DEFAULT_LABEL_OFFSET, DEFAULT_FONT_SIZE,
+from base_item import (
+    BaseLabel, LabelPropertiesMixin,
+    SELECTED_COLOR,
 )
 
 MOMENT_ARC_COLOR = QColor(220, 50, 50)       # red (same as vectors)
@@ -40,11 +40,7 @@ moment_settings = MomentSettings()  # global singleton
 # --- Geometry helpers ---
 
 def _angle_point(center: QPointF, radius: float, angle_deg: float) -> QPointF:
-    """Compute a point on the arc circle at the given angle (degrees).
-
-    Qt convention: 0° = 3 o'clock, positive = counterclockwise.
-    Screen Y is inverted, so sin is negated.
-    """
+    """Compute a point on the arc circle at the given angle (degrees)."""
     rad = math.radians(angle_deg)
     return QPointF(
         center.x() + radius * math.cos(rad),
@@ -53,79 +49,12 @@ def _angle_point(center: QPointF, radius: float, angle_deg: float) -> QPointF:
 
 
 def _tangent_direction(angle_deg: float, ccw: bool) -> QPointF:
-    """Unit tangent vector at a point on the arc.
-
-    For CCW (positive span): tangent points in direction of increasing angle.
-    For CW (negative span): tangent points in direction of decreasing angle.
-    """
+    """Unit tangent vector at a point on the arc."""
     rad = math.radians(angle_deg)
     if ccw:
         return QPointF(-math.sin(rad), -math.cos(rad))
     else:
         return QPointF(math.sin(rad), math.cos(rad))
-
-
-class MomentLabel(QGraphicsTextItem):
-    """Draggable label attached to a moment, rendered with HTML formatting."""
-
-    def __init__(self, moment: "MomentItem"):
-        super().__init__()
-        self._moment = moment
-        self._drag_old_offset: QPointF | None = None
-        self._updating = False
-
-        self.setDefaultTextColor(LABEL_COLOR)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
-        self.setZValue(5)
-        self.setVisible(False)
-
-    def set_font_size(self, size: int):
-        self.setFont(get_cm_font(size))
-
-    def update_display(self):
-        m = self._moment
-        html = label_to_html(m._label_text, m._label_bold, m._label_italic)
-        self.setHtml(html)
-
-    def update_color(self, selected: bool):
-        self.setDefaultTextColor(SELECTED_COLOR if selected else LABEL_COLOR)
-        self.update_display()
-
-    def update_position(self):
-        self._updating = True
-        self.setPos(self._moment._center + self._moment._label_offset)
-        self._updating = False
-
-    def itemChange(self, change, value):
-        if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged and not self._updating:
-            self._moment._label_offset = value - self._moment._center
-        return super().itemChange(change, value)
-
-    def mousePressEvent(self, event: QGraphicsSceneMouseEvent):
-        self._drag_old_offset = QPointF(self._moment._label_offset)
-        if not self._moment.isSelected():
-            if self.scene():
-                self.scene().clearSelection()
-            self._moment.setSelected(True)
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent):
-        super().mouseReleaseEvent(event)
-        if self._drag_old_offset is None:
-            return
-        new_offset = QPointF(self._moment._label_offset)
-        old_offset = self._drag_old_offset
-        self._drag_old_offset = None
-        if new_offset == old_offset:
-            return
-        push_fn = self._moment.on_push_undo
-        if push_fn is not None:
-            self._moment._label_offset = QPointF(old_offset)
-            self.update_position()
-            from commands import MoveLabelCommand
-            cmd = MoveLabelCommand(self._moment, old_offset, new_offset)
-            push_fn(cmd)
 
 
 class MomentCenterMarker(QGraphicsEllipseItem):
@@ -134,7 +63,7 @@ class MomentCenterMarker(QGraphicsEllipseItem):
     def __init__(self, moment: "MomentItem"):
         r = moment_settings.center_radius
         super().__init__(-r, -r, 2 * r, 2 * r)
-        self._moment = moment
+        self._parent_item = moment
         self.setPos(moment._center)
         self.setBrush(QBrush(MOMENT_CENTER_COLOR))
         self.setPen(QPen(QColor(255, 255, 255), 1))
@@ -147,36 +76,37 @@ class MomentCenterMarker(QGraphicsEllipseItem):
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged:
-            self._moment._center = QPointF(value)
-            self._moment._start_handle.setPos(
-                _angle_point(self._moment._center, self._moment._radius, self._moment._start_angle))
-            self._moment._end_handle.setPos(
-                _angle_point(self._moment._center, self._moment._radius, self._moment.end_angle))
-            self._moment._rebuild_path()
+            m = self._parent_item
+            m._center = QPointF(value)
+            m._start_handle.setPos(
+                _angle_point(m._center, m._radius, m._start_angle))
+            m._end_handle.setPos(
+                _angle_point(m._center, m._radius, m.end_angle))
+            m._rebuild_path()
         return super().itemChange(change, value)
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent):
-        self._drag_old_center = QPointF(self._moment._center)
-        if not self._moment.isSelected():
+        self._drag_old_center = QPointF(self._parent_item._center)
+        if not self._parent_item.isSelected():
             if self.scene():
                 self.scene().clearSelection()
-            self._moment.setSelected(True)
+            self._parent_item.setSelected(True)
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent):
         super().mouseReleaseEvent(event)
         if self._drag_old_center is None:
             return
-        new_center = QPointF(self._moment._center)
+        new_center = QPointF(self._parent_item._center)
         old_center = self._drag_old_center
         self._drag_old_center = None
         if new_center == old_center:
             return
-        push_fn = self._moment.on_push_undo
+        push_fn = self._parent_item.on_push_undo
         if push_fn is not None:
-            self._moment.set_center(old_center)
+            self._parent_item.set_center(old_center)
             from commands import MoveMomentCommand
-            cmd = MoveMomentCommand(self._moment, old_center, new_center)
+            cmd = MoveMomentCommand(self._parent_item, old_center, new_center)
             push_fn(cmd)
 
 
@@ -186,7 +116,7 @@ class MomentArcEndpoint(QGraphicsEllipseItem):
     def __init__(self, moment: "MomentItem", is_start: bool):
         r = moment_settings.handle_radius
         super().__init__(-r, -r, 2 * r, 2 * r)
-        self._moment = moment
+        self._parent_item = moment
         self._is_start = is_start
 
         angle = moment._start_angle if is_start else moment.end_angle
@@ -206,62 +136,61 @@ class MomentArcEndpoint(QGraphicsEllipseItem):
 
     def itemChange(self, change, value):
         if change == QGraphicsItem.GraphicsItemChange.ItemPositionHasChanged and not self._constraining:
-            # Compute angle from center to this position
-            dx = value.x() - self._moment._center.x()
-            dy = -(value.y() - self._moment._center.y())  # negate Y for math coords
+            m = self._parent_item
+            dx = value.x() - m._center.x()
+            dy = -(value.y() - m._center.y())  # negate Y for math coords
             new_angle = math.degrees(math.atan2(dy, dx)) % 360
 
             if self._is_start:
-                old_end = (self._moment._start_angle + self._moment._span_angle) % 360
-                self._moment._start_angle = new_angle
-                self._moment._span_angle = (old_end - new_angle) % 360
-                if self._moment._span_angle == 0:
-                    self._moment._span_angle = 360
+                old_end = (m._start_angle + m._span_angle) % 360
+                m._start_angle = new_angle
+                m._span_angle = (old_end - new_angle) % 360
+                if m._span_angle == 0:
+                    m._span_angle = 360
             else:
-                new_span = (new_angle - self._moment._start_angle) % 360
+                new_span = (new_angle - m._start_angle) % 360
                 if new_span == 0:
                     new_span = 360
-                self._moment._span_angle = new_span
+                m._span_angle = new_span
 
-            # Constrain handle to the arc circle
-            constrained_pos = _angle_point(self._moment._center, self._moment._radius, new_angle)
+            constrained_pos = _angle_point(m._center, m._radius, new_angle)
             self._constraining = True
             self.setPos(constrained_pos)
             self._constraining = False
 
-            self._moment._rebuild_path()
+            m._rebuild_path()
         return super().itemChange(change, value)
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent):
-        self._drag_old_start_angle = self._moment._start_angle
-        self._drag_old_span_angle = self._moment._span_angle
-        if not self._moment.isSelected():
+        self._drag_old_start_angle = self._parent_item._start_angle
+        self._drag_old_span_angle = self._parent_item._span_angle
+        if not self._parent_item.isSelected():
             if self.scene():
                 self.scene().clearSelection()
-            self._moment.setSelected(True)
+            self._parent_item.setSelected(True)
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent):
         super().mouseReleaseEvent(event)
         if self._drag_old_start_angle is None:
             return
-        new_start = self._moment._start_angle
-        new_span = self._moment._span_angle
+        new_start = self._parent_item._start_angle
+        new_span = self._parent_item._span_angle
         old_start = self._drag_old_start_angle
         old_span = self._drag_old_span_angle
         self._drag_old_start_angle = None
         self._drag_old_span_angle = None
         if new_start == old_start and new_span == old_span:
             return
-        push_fn = self._moment.on_push_undo
+        push_fn = self._parent_item.on_push_undo
         if push_fn is not None:
-            self._moment.set_angles(old_start, old_span)
+            self._parent_item.set_angles(old_start, old_span)
             from commands import ChangeAnglesCommand
-            cmd = ChangeAnglesCommand(self._moment, old_start, old_span, new_start, new_span)
+            cmd = ChangeAnglesCommand(self._parent_item, old_start, old_span, new_start, new_span)
             push_fn(cmd)
 
 
-class MomentItem(QGraphicsPathItem):
+class MomentItem(LabelPropertiesMixin, QGraphicsPathItem):
     """A moment (rotational force) visualized as a curved arc arrow."""
 
     def __init__(self, center: QPointF, radius: float = DEFAULT_RADIUS,
@@ -273,18 +202,6 @@ class MomentItem(QGraphicsPathItem):
         self._start_angle = start_angle
         self._span_angle = span_angle
 
-        self._label_text = ""
-        self._label_visible = False
-        self._label_offset = QPointF(DEFAULT_LABEL_OFFSET)
-        self._font_size = DEFAULT_FONT_SIZE
-        self._label_bold = True
-        self._label_italic = True
-
-        self._z_order = 0
-
-        self.on_modified = None
-        self.on_push_undo = None
-
         self._arrowhead_polygon: QPolygonF | None = None
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setZValue(1)
@@ -293,22 +210,22 @@ class MomentItem(QGraphicsPathItem):
         self._start_handle = MomentArcEndpoint(self, is_start=True)
         self._end_handle = MomentArcEndpoint(self, is_start=False)
 
-        self._label = MomentLabel(self)
+        self._label = BaseLabel(self)
+        self._init_label_properties()
         self._label.set_font_size(self._font_size)
 
         self._rebuild_path()
 
-    def added_to_scene(self, scene):
-        scene.addItem(self._center_marker)
-        scene.addItem(self._start_handle)
-        scene.addItem(self._end_handle)
-        scene.addItem(self._label)
+    # --- LabelPropertiesMixin overrides ---
 
-    def removed_from_scene(self, scene):
-        scene.removeItem(self._center_marker)
-        scene.removeItem(self._start_handle)
-        scene.removeItem(self._end_handle)
-        scene.removeItem(self._label)
+    def label_anchor(self) -> QPointF:
+        return QPointF(self._center)
+
+    def drag_anchor(self) -> QPointF:
+        return QPointF(self._center)
+
+    def _get_handles(self) -> list:
+        return [self._center_marker, self._start_handle, self._end_handle]
 
     # --- Properties ---
 
@@ -331,77 +248,6 @@ class MomentItem(QGraphicsPathItem):
     @property
     def end_angle(self) -> float:
         return (self._start_angle + self._span_angle) % 360
-
-    @property
-    def z_order(self) -> int:
-        return self._z_order
-
-    @z_order.setter
-    def z_order(self, value: int):
-        self._z_order = value
-        self.setZValue(1 + value)
-        self._label.setZValue(5 + value)
-        self._center_marker.setZValue(10 + value)
-        self._start_handle.setZValue(10 + value)
-        self._end_handle.setZValue(10 + value)
-
-    @property
-    def label_text(self) -> str:
-        return self._label_text
-
-    @label_text.setter
-    def label_text(self, value: str):
-        self._label_text = value
-        self._label.update_display()
-        self._update_label_visibility()
-
-    @property
-    def label_visible(self) -> bool:
-        return self._label_visible
-
-    @label_visible.setter
-    def label_visible(self, value: bool):
-        self._label_visible = value
-        self._update_label_visibility()
-
-    @property
-    def label_offset(self) -> QPointF:
-        return QPointF(self._label_offset)
-
-    @label_offset.setter
-    def label_offset(self, value: QPointF):
-        self._label_offset = QPointF(value)
-        self._label.update_position()
-
-    @property
-    def font_size(self) -> int:
-        return self._font_size
-
-    @font_size.setter
-    def font_size(self, value: int):
-        self._font_size = value
-        self._label.set_font_size(value)
-
-    @property
-    def label_bold(self) -> bool:
-        return self._label_bold
-
-    @label_bold.setter
-    def label_bold(self, value: bool):
-        self._label_bold = value
-        self._label.update_display()
-
-    @property
-    def label_italic(self) -> bool:
-        return self._label_italic
-
-    @label_italic.setter
-    def label_italic(self, value: bool):
-        self._label_italic = value
-        self._label.update_display()
-
-    def _update_label_visibility(self):
-        self._label.setVisible(self._label_visible and bool(self._label_text))
 
     # --- Movement / mutation ---
 
@@ -439,6 +285,17 @@ class MomentItem(QGraphicsPathItem):
         self._end_handle.setPos(
             _angle_point(self._center, self._radius, self.end_angle))
         self._rebuild_path()
+
+    # --- Layer visibility ---
+
+    def set_layer_visible(self, visible: bool):
+        self.setVisible(visible)
+        self._label.setVisible(
+            visible and self._label_visible and bool(self._label_text)
+        )
+        self._center_marker.setVisible(visible)
+        self._start_handle.setVisible(visible and self.isSelected())
+        self._end_handle.setVisible(visible and self.isSelected())
 
     # --- Style ---
 
@@ -551,19 +408,12 @@ class MomentItem(QGraphicsPathItem):
     # --- Serialization ---
 
     def to_dict(self) -> dict:
-        return {
-            "center": [self._center.x(), self._center.y()],
-            "radius": self._radius,
-            "start_angle": self._start_angle,
-            "span_angle": self._span_angle,
-            "label_text": self._label_text,
-            "label_visible": self._label_visible,
-            "label_offset": [self._label_offset.x(), self._label_offset.y()],
-            "font_size": self._font_size,
-            "label_bold": self._label_bold,
-            "label_italic": self._label_italic,
-            "z_order": self._z_order,
-        }
+        d = self._base_to_dict()
+        d["center"] = [self._center.x(), self._center.y()]
+        d["radius"] = self._radius
+        d["start_angle"] = self._start_angle
+        d["span_angle"] = self._span_angle
+        return d
 
     @classmethod
     def from_dict(cls, data: dict) -> "MomentItem":
@@ -573,18 +423,5 @@ class MomentItem(QGraphicsPathItem):
             start_angle=data.get("start_angle", DEFAULT_START_ANGLE),
             span_angle=data.get("span_angle", DEFAULT_SPAN_ANGLE),
         )
-        m._label_text = data.get("label_text", "")
-        m._label_visible = data.get("label_visible", False)
-        offset = data.get("label_offset", [DEFAULT_LABEL_OFFSET.x(), DEFAULT_LABEL_OFFSET.y()])
-        m._label_offset = QPointF(offset[0], offset[1])
-        m._font_size = data.get("font_size", DEFAULT_FONT_SIZE)
-        m._label_bold = data.get("label_bold", True)
-        m._label_italic = data.get("label_italic", True)
-        m._label.set_font_size(m._font_size)
-        m._label.update_display()
-        m._update_label_visibility()
-        m._label.update_position()
-        z = data.get("z_order", 0)
-        if z != 0:
-            m.z_order = z
+        m._base_from_dict(data)
         return m

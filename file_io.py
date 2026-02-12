@@ -7,7 +7,8 @@ from PyQt6.QtCore import QBuffer, QIODevice
 from PyQt6.QtGui import QPixmap
 
 from canvas import FBDCanvas, SessionMetadata
-from vector_item import VectorItem, DEFAULT_MAGNITUDE, DEFAULT_FONT_SIZE
+from base_item import DEFAULT_FONT_SIZE
+from vector_item import VectorItem, DEFAULT_MAGNITUDE
 from point_item import PointItem
 from direction_item import DirectionItem
 from line_item import LineItem

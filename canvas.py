@@ -21,12 +21,8 @@ from direction_item import DirectionItem
 from line_item import LineItem
 from moment_item import MomentItem
 from commands import (
-    AddVectorCommand, DeleteVectorCommand, MoveVectorCommand,
-    AddPointCommand, DeletePointCommand, MovePointCommand,
-    AddDirectionCommand, DeleteDirectionCommand, MoveDirectionCommand,
-    AddLineCommand, DeleteLineCommand, MoveLineCommand,
-    AddMomentCommand, DeleteMomentCommand, ChangeRadiusCommand,
-    ChangeZValueCommand,
+    AddItemCommand, DeleteItemCommand, MoveItemCommand,
+    ChangeRadiusCommand, ChangeZValueCommand,
 )
 
 
@@ -100,10 +96,30 @@ class FBDCanvas(QGraphicsView):
         self._scene.addItem(self._canvas_rect)
 
         self._bg_item: QGraphicsPixmapItem | None = None
-        self._vectors: list[VectorItem] = []
-        self._points: list[PointItem] = []
-        self._directions: list[DirectionItem] = []
         self._undo_stack: QUndoStack | None = None
+
+        # Item registry — single source of truth for all item lists
+        self._items: dict[str, list] = {
+            'vectors': [],
+            'points': [],
+            'directions': [],
+            'lines': [],
+            'moments': [],
+        }
+        self._visibility: dict[str, bool] = {
+            'vectors': True,
+            'points': True,
+            'directions': True,
+            'lines': True,
+            'moments': True,
+        }
+        self._type_classes: dict[str, type] = {
+            'vectors': VectorItem,
+            'points': PointItem,
+            'directions': DirectionItem,
+            'lines': LineItem,
+            'moments': MomentItem,
+        }
 
         # Session metadata
         self._metadata = SessionMetadata()
@@ -115,43 +131,17 @@ class FBDCanvas(QGraphicsView):
         self._draw_start: QPointF | None = None
         self._preview_line: QGraphicsLineItem | None = None
 
-        # Body-drag state (vectors)
-        self._dragging_vector: VectorItem | None = None
-        self._drag_start_tail: QPointF | None = None
+        # Unified body-drag state (vectors, points, directions, lines)
+        self._dragging_item = None
+        self._drag_anchor: QPointF | None = None   # item.drag_anchor() at drag start
         self._drag_last: QPointF | None = None
-
-        # Body-drag state (points)
-        self._dragging_point: PointItem | None = None
-        self._drag_start_pos: QPointF | None = None
-        self._drag_point_last: QPointF | None = None
-
-        # Body-drag state (directions)
-        self._dragging_direction: DirectionItem | None = None
-        self._drag_dir_start_tail: QPointF | None = None
-        self._drag_dir_last: QPointF | None = None
-
-        # Lines
-        self._lines: list[LineItem] = []
-
-        # Body-drag state (lines)
-        self._dragging_line: LineItem | None = None
-        self._drag_line_start_tail: QPointF | None = None
-        self._drag_line_last: QPointF | None = None
-
-        # Moments
-        self._moments: list[MomentItem] = []
 
         # Radius-drag state (moments)
         self._dragging_moment_radius: MomentItem | None = None
         self._drag_moment_old_radius: float | None = None
 
-        # Layer visibility flags
+        # Background visibility (separate from item registry)
         self._bg_visible = True
-        self._vectors_visible = True
-        self._points_visible = True
-        self._directions_visible = True
-        self._lines_visible = True
-        self._moments_visible = True
 
         # Rendering
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -226,194 +216,84 @@ class FBDCanvas(QGraphicsView):
             return self._bg_item.pixmap()
         return None
 
-    # --- Vectors ---
+    # --- Generic item registry methods ---
 
-    def add_vector(self, vec: VectorItem):
-        if vec not in self._vectors:
-            self._scene.addItem(vec)
-            vec.added_to_scene(self._scene)
-            vec.on_modified = lambda: self.modified.emit()
+    def _add_item(self, type_key: str, item):
+        items = self._items[type_key]
+        if item not in items:
+            self._scene.addItem(item)
+            item.added_to_scene(self._scene)
+            item.on_modified = lambda: self.modified.emit()
             if self._has_undo_stack():
-                vec.on_push_undo = lambda cmd: self._undo_stack.push(cmd)
-            self._vectors.append(vec)
-            if not self._vectors_visible:
-                vec.setVisible(False)
-                vec._label.setVisible(False)
-                vec._tail_handle.setVisible(False)
-                vec._head_handle.setVisible(False)
+                item.on_push_undo = lambda cmd: self._undo_stack.push(cmd)
+            items.append(item)
+            if not self._visibility[type_key]:
+                item.set_layer_visible(False)
 
-    def remove_vector(self, vec: VectorItem):
-        if vec in self._vectors:
-            vec.removed_from_scene(self._scene)
-            self._scene.removeItem(vec)
-            self._vectors.remove(vec)
+    def _remove_item(self, type_key: str, item):
+        items = self._items[type_key]
+        if item in items:
+            item.removed_from_scene(self._scene)
+            self._scene.removeItem(item)
+            items.remove(item)
 
-    def get_vectors(self) -> list[VectorItem]:
-        return list(self._vectors)
+    def _get_items(self, type_key: str) -> list:
+        return list(self._items[type_key])
 
-    def get_vectors_data(self) -> list[dict]:
-        return [a.to_dict() for a in self._vectors]
+    def _get_items_data(self, type_key: str) -> list[dict]:
+        return [item.to_dict() for item in self._items[type_key]]
 
-    def get_selected_vector(self) -> VectorItem | None:
+    def _get_selected_item(self, item_class: type):
         for item in self._scene.selectedItems():
-            if isinstance(item, VectorItem):
+            if isinstance(item, item_class):
                 return item
         return None
 
-    def clear_vectors(self):
-        for vec in list(self._vectors):
-            self.remove_vector(vec)
+    def _clear_items(self, type_key: str):
+        for item in list(self._items[type_key]):
+            self._remove_item(type_key, item)
 
-    # --- Points ---
+    def _set_type_visible(self, type_key: str, visible: bool):
+        self._visibility[type_key] = visible
+        for item in self._items[type_key]:
+            item.set_layer_visible(visible)
 
-    def add_point(self, point: PointItem):
-        if point not in self._points:
-            self._scene.addItem(point)
-            point.added_to_scene(self._scene)
-            point.on_modified = lambda: self.modified.emit()
-            if self._has_undo_stack():
-                point.on_push_undo = lambda cmd: self._undo_stack.push(cmd)
-            self._points.append(point)
-            if not self._points_visible:
-                point.setVisible(False)
-                point._label.setVisible(False)
+    # --- Public wrappers (backward compat) ---
 
-    def remove_point(self, point: PointItem):
-        if point in self._points:
-            point.removed_from_scene(self._scene)
-            self._scene.removeItem(point)
-            self._points.remove(point)
+    def add_vector(self, vec):          self._add_item('vectors', vec)
+    def remove_vector(self, vec):       self._remove_item('vectors', vec)
+    def get_vectors(self):              return self._get_items('vectors')
+    def get_vectors_data(self):         return self._get_items_data('vectors')
+    def get_selected_vector(self):      return self._get_selected_item(VectorItem)
+    def clear_vectors(self):            self._clear_items('vectors')
 
-    def get_points(self) -> list[PointItem]:
-        return list(self._points)
+    def add_point(self, pt):            self._add_item('points', pt)
+    def remove_point(self, pt):         self._remove_item('points', pt)
+    def get_points(self):               return self._get_items('points')
+    def get_points_data(self):          return self._get_items_data('points')
+    def get_selected_point(self):       return self._get_selected_item(PointItem)
+    def clear_points(self):             self._clear_items('points')
 
-    def get_points_data(self) -> list[dict]:
-        return [p.to_dict() for p in self._points]
+    def add_direction(self, d):         self._add_item('directions', d)
+    def remove_direction(self, d):      self._remove_item('directions', d)
+    def get_directions(self):           return self._get_items('directions')
+    def get_directions_data(self):      return self._get_items_data('directions')
+    def get_selected_direction(self):   return self._get_selected_item(DirectionItem)
+    def clear_directions(self):         self._clear_items('directions')
 
-    def get_selected_point(self) -> PointItem | None:
-        for item in self._scene.selectedItems():
-            if isinstance(item, PointItem):
-                return item
-        return None
+    def add_line(self, ln):             self._add_item('lines', ln)
+    def remove_line(self, ln):          self._remove_item('lines', ln)
+    def get_lines(self):                return self._get_items('lines')
+    def get_lines_data(self):           return self._get_items_data('lines')
+    def get_selected_line(self):        return self._get_selected_item(LineItem)
+    def clear_lines(self):              self._clear_items('lines')
 
-    def clear_points(self):
-        for point in list(self._points):
-            self.remove_point(point)
-
-    # --- Directions ---
-
-    def add_direction(self, direction: DirectionItem):
-        if direction not in self._directions:
-            self._scene.addItem(direction)
-            direction.added_to_scene(self._scene)
-            direction.on_modified = lambda: self.modified.emit()
-            if self._has_undo_stack():
-                direction.on_push_undo = lambda cmd: self._undo_stack.push(cmd)
-            self._directions.append(direction)
-            if not self._directions_visible:
-                direction.setVisible(False)
-                direction._label.setVisible(False)
-                direction._tail_handle.setVisible(False)
-                direction._head_handle.setVisible(False)
-
-    def remove_direction(self, direction: DirectionItem):
-        if direction in self._directions:
-            direction.removed_from_scene(self._scene)
-            self._scene.removeItem(direction)
-            self._directions.remove(direction)
-
-    def get_directions(self) -> list[DirectionItem]:
-        return list(self._directions)
-
-    def get_directions_data(self) -> list[dict]:
-        return [d.to_dict() for d in self._directions]
-
-    def get_selected_direction(self) -> DirectionItem | None:
-        for item in self._scene.selectedItems():
-            if isinstance(item, DirectionItem):
-                return item
-        return None
-
-    def clear_directions(self):
-        for d in list(self._directions):
-            self.remove_direction(d)
-
-    # --- Lines ---
-
-    def add_line(self, line: LineItem):
-        if line not in self._lines:
-            self._scene.addItem(line)
-            line.added_to_scene(self._scene)
-            line.on_modified = lambda: self.modified.emit()
-            if self._has_undo_stack():
-                line.on_push_undo = lambda cmd: self._undo_stack.push(cmd)
-            self._lines.append(line)
-            if not self._lines_visible:
-                line.setVisible(False)
-                line._label.setVisible(False)
-                line._tail_handle.setVisible(False)
-                line._head_handle.setVisible(False)
-
-    def remove_line(self, line: LineItem):
-        if line in self._lines:
-            line.removed_from_scene(self._scene)
-            self._scene.removeItem(line)
-            self._lines.remove(line)
-
-    def get_lines(self) -> list[LineItem]:
-        return list(self._lines)
-
-    def get_lines_data(self) -> list[dict]:
-        return [ln.to_dict() for ln in self._lines]
-
-    def get_selected_line(self) -> LineItem | None:
-        for item in self._scene.selectedItems():
-            if isinstance(item, LineItem):
-                return item
-        return None
-
-    def clear_lines(self):
-        for ln in list(self._lines):
-            self.remove_line(ln)
-
-    # --- Moments ---
-
-    def add_moment(self, moment: MomentItem):
-        if moment not in self._moments:
-            self._scene.addItem(moment)
-            moment.added_to_scene(self._scene)
-            moment.on_modified = lambda: self.modified.emit()
-            if self._has_undo_stack():
-                moment.on_push_undo = lambda cmd: self._undo_stack.push(cmd)
-            self._moments.append(moment)
-            if not self._moments_visible:
-                moment.setVisible(False)
-                moment._label.setVisible(False)
-                moment._center_marker.setVisible(False)
-                moment._start_handle.setVisible(False)
-                moment._end_handle.setVisible(False)
-
-    def remove_moment(self, moment: MomentItem):
-        if moment in self._moments:
-            moment.removed_from_scene(self._scene)
-            self._scene.removeItem(moment)
-            self._moments.remove(moment)
-
-    def get_moments(self) -> list[MomentItem]:
-        return list(self._moments)
-
-    def get_moments_data(self) -> list[dict]:
-        return [m.to_dict() for m in self._moments]
-
-    def get_selected_moment(self) -> MomentItem | None:
-        for item in self._scene.selectedItems():
-            if isinstance(item, MomentItem):
-                return item
-        return None
-
-    def clear_moments(self):
-        for m in list(self._moments):
-            self.remove_moment(m)
+    def add_moment(self, m):            self._add_item('moments', m)
+    def remove_moment(self, m):         self._remove_item('moments', m)
+    def get_moments(self):              return self._get_items('moments')
+    def get_moments_data(self):         return self._get_items_data('moments')
+    def get_selected_moment(self):      return self._get_selected_item(MomentItem)
+    def clear_moments(self):            self._clear_items('moments')
 
     # --- Layer visibility ---
 
@@ -422,54 +302,11 @@ class FBDCanvas(QGraphicsView):
         if self._bg_item is not None:
             self._bg_item.setVisible(visible)
 
-    def set_vectors_visible(self, visible: bool):
-        self._vectors_visible = visible
-        for vec in self._vectors:
-            vec.setVisible(visible)
-            vec._label.setVisible(
-                visible and vec._label_visible and bool(vec._label_text)
-            )
-            vec._tail_handle.setVisible(visible)
-            vec._head_handle.setVisible(visible)
-
-    def set_points_visible(self, visible: bool):
-        self._points_visible = visible
-        for pt in self._points:
-            pt.setVisible(visible)
-            pt._label.setVisible(
-                visible and pt._label_visible and bool(pt._label_text)
-            )
-
-    def set_directions_visible(self, visible: bool):
-        self._directions_visible = visible
-        for d in self._directions:
-            d.setVisible(visible)
-            d._label.setVisible(
-                visible and d._label_visible and bool(d._label_text)
-            )
-            d._tail_handle.setVisible(visible)
-            d._head_handle.setVisible(visible)
-
-    def set_lines_visible(self, visible: bool):
-        self._lines_visible = visible
-        for ln in self._lines:
-            ln.setVisible(visible)
-            ln._label.setVisible(
-                visible and ln._label_visible and bool(ln._label_text)
-            )
-            ln._tail_handle.setVisible(visible)
-            ln._head_handle.setVisible(visible)
-
-    def set_moments_visible(self, visible: bool):
-        self._moments_visible = visible
-        for m in self._moments:
-            m.setVisible(visible)
-            m._label.setVisible(
-                visible and m._label_visible and bool(m._label_text)
-            )
-            m._center_marker.setVisible(visible)
-            m._start_handle.setVisible(visible and m.isSelected())
-            m._end_handle.setVisible(visible and m.isSelected())
+    def set_vectors_visible(self, visible):     self._set_type_visible('vectors', visible)
+    def set_points_visible(self, visible):      self._set_type_visible('points', visible)
+    def set_directions_visible(self, visible):  self._set_type_visible('directions', visible)
+    def set_lines_visible(self, visible):       self._set_type_visible('lines', visible)
+    def set_moments_visible(self, visible):     self._set_type_visible('moments', visible)
 
     # --- Snapping ---
 
@@ -542,11 +379,11 @@ class FBDCanvas(QGraphicsView):
             if self._tool == ToolMode.POINT:
                 scene_pos = self.mapToScene(event.pos())
                 point = PointItem(scene_pos)
-                point.label_text = f"P_{len(self._points) + 1}"
+                point.label_text = f"P_{len(self._items['points']) + 1}"
                 point.label_visible = True
 
                 if self._has_undo_stack():
-                    cmd = AddPointCommand(self, point)
+                    cmd = AddItemCommand(self, point, 'points')
                     self._undo_stack.push(cmd)
                 else:
                     self.add_point(point)
@@ -558,46 +395,22 @@ class FBDCanvas(QGraphicsView):
                 self.set_tool(ToolMode.SELECT)
                 return
 
-            # Select mode — check if clicking on a vector or point body for dragging
+            # Select mode — check if clicking on an item body for dragging
             if self._tool == ToolMode.SELECT:
                 scene_pos = self.mapToScene(event.pos())
                 item = self._scene.itemAt(scene_pos, self.transform())
-                if isinstance(item, VectorItem):
-                    self._dragging_vector = item
-                    self._drag_start_tail = QPointF(item.tail)
-                    self._drag_last = scene_pos
-                    if not item.isSelected():
-                        self._scene.clearSelection()
-                        item.setSelected(True)
-                    return
-                if isinstance(item, PointItem):
-                    self._dragging_point = item
-                    self._drag_start_pos = QPointF(item.point_pos)
-                    self._drag_point_last = scene_pos
-                    if not item.isSelected():
-                        self._scene.clearSelection()
-                        item.setSelected(True)
-                    return
-                if isinstance(item, DirectionItem):
-                    self._dragging_direction = item
-                    self._drag_dir_start_tail = QPointF(item.tail)
-                    self._drag_dir_last = scene_pos
-                    if not item.isSelected():
-                        self._scene.clearSelection()
-                        item.setSelected(True)
-                    return
-                if isinstance(item, LineItem):
-                    self._dragging_line = item
-                    self._drag_line_start_tail = QPointF(item.tail)
-                    self._drag_line_last = scene_pos
-                    if not item.isSelected():
-                        self._scene.clearSelection()
-                        item.setSelected(True)
-                    return
                 if isinstance(item, MomentItem):
                     # Clicking on the arc body starts a radius drag
                     self._dragging_moment_radius = item
                     self._drag_moment_old_radius = item.radius
+                    if not item.isSelected():
+                        self._scene.clearSelection()
+                        item.setSelected(True)
+                    return
+                if isinstance(item, (VectorItem, PointItem, DirectionItem, LineItem)):
+                    self._dragging_item = item
+                    self._drag_anchor = item.drag_anchor()
+                    self._drag_last = scene_pos
                     if not item.isSelected():
                         self._scene.clearSelection()
                         item.setSelected(True)
@@ -617,36 +430,12 @@ class FBDCanvas(QGraphicsView):
             )
             return
 
-        # Vector body drag
-        if self._dragging_vector and self._drag_last:
+        # Unified body drag (vector / point / direction / line)
+        if self._dragging_item and self._drag_last:
             scene_pos = self.mapToScene(event.pos())
             delta = scene_pos - self._drag_last
-            self._dragging_vector.move_by(delta)
+            self._dragging_item.move_by(delta)
             self._drag_last = scene_pos
-            return
-
-        # Point body drag
-        if self._dragging_point and self._drag_point_last:
-            scene_pos = self.mapToScene(event.pos())
-            delta = scene_pos - self._drag_point_last
-            self._dragging_point.move_by(delta)
-            self._drag_point_last = scene_pos
-            return
-
-        # Direction body drag
-        if self._dragging_direction and self._drag_dir_last:
-            scene_pos = self.mapToScene(event.pos())
-            delta = scene_pos - self._drag_dir_last
-            self._dragging_direction.move_by(delta)
-            self._drag_dir_last = scene_pos
-            return
-
-        # Line body drag
-        if self._dragging_line and self._drag_line_last:
-            scene_pos = self.mapToScene(event.pos())
-            delta = scene_pos - self._drag_line_last
-            self._dragging_line.move_by(delta)
-            self._drag_line_last = scene_pos
             return
 
         # Moment radius drag
@@ -685,7 +474,7 @@ class FBDCanvas(QGraphicsView):
                         if creating_tool == ToolMode.DIRECTION:
                             d = DirectionItem(self._draw_start, end)
                             if self._has_undo_stack():
-                                cmd = AddDirectionCommand(self, d)
+                                cmd = AddItemCommand(self, d, 'directions')
                                 self._undo_stack.push(cmd)
                             else:
                                 self.add_direction(d)
@@ -699,10 +488,10 @@ class FBDCanvas(QGraphicsView):
                             if radius < 10:
                                 radius = 50.0
                             m = MomentItem(center, radius)
-                            m.label_text = f"M_{len(self._moments) + 1}"
+                            m.label_text = f"M_{len(self._items['moments']) + 1}"
                             m.label_visible = True
                             if self._has_undo_stack():
-                                cmd = AddMomentCommand(self, m)
+                                cmd = AddItemCommand(self, m, 'moments')
                                 self._undo_stack.push(cmd)
                             else:
                                 self.add_moment(m)
@@ -712,7 +501,7 @@ class FBDCanvas(QGraphicsView):
                         elif creating_tool == ToolMode.LINE:
                             ln = LineItem(self._draw_start, end)
                             if self._has_undo_stack():
-                                cmd = AddLineCommand(self, ln)
+                                cmd = AddItemCommand(self, ln, 'lines')
                                 self._undo_stack.push(cmd)
                             else:
                                 self.add_line(ln)
@@ -721,10 +510,11 @@ class FBDCanvas(QGraphicsView):
                             ln.setSelected(True)
                         else:
                             vec = VectorItem(self._draw_start, end)
-                            vec.label_text = f"F_{len(self._vectors) + 1}"
+                            vec.label_text = f"F_{len(self._items['vectors']) + 1}"
                             vec.label_visible = True
                             if self._has_undo_stack():
-                                cmd = AddVectorCommand(self, vec)
+                                self._metadata.total_arrows_created += 1
+                                cmd = AddItemCommand(self, vec, 'vectors')
                                 self._undo_stack.push(cmd)
                             else:
                                 self.add_vector(vec)
@@ -736,79 +526,22 @@ class FBDCanvas(QGraphicsView):
                 self.set_tool(ToolMode.SELECT)
                 return
 
-            # Finish vector body drag
-            if self._dragging_vector:
-                vec = self._dragging_vector
-                self._dragging_vector = None
+            # Finish unified body drag
+            if self._dragging_item:
+                item = self._dragging_item
+                self._dragging_item = None
                 self._drag_last = None
 
-                if self._has_undo_stack() and self._drag_start_tail and vec.tail != self._drag_start_tail:
-                    current_tail = QPointF(vec.tail)
-                    original_tail = self._drag_start_tail
-                    vec.move_by(original_tail - current_tail)
-                    cmd = MoveVectorCommand(vec, original_tail, current_tail)
+                current_anchor = item.drag_anchor()
+                if self._has_undo_stack() and self._drag_anchor and current_anchor != self._drag_anchor:
+                    original_anchor = self._drag_anchor
+                    item.move_by(original_anchor - current_anchor)
+                    cmd = MoveItemCommand(item, original_anchor, current_anchor)
                     self._undo_stack.push(cmd)
                 else:
                     self.modified.emit()
 
-                self._drag_start_tail = None
-                self.selection_changed.emit()
-                return
-
-            # Finish point body drag
-            if self._dragging_point:
-                point = self._dragging_point
-                self._dragging_point = None
-                self._drag_point_last = None
-
-                if self._has_undo_stack() and self._drag_start_pos and point.point_pos != self._drag_start_pos:
-                    current_pos = QPointF(point.point_pos)
-                    original_pos = self._drag_start_pos
-                    point.move_by(original_pos - current_pos)
-                    cmd = MovePointCommand(point, original_pos, current_pos)
-                    self._undo_stack.push(cmd)
-                else:
-                    self.modified.emit()
-
-                self._drag_start_pos = None
-                self.selection_changed.emit()
-                return
-
-            # Finish direction body drag
-            if self._dragging_direction:
-                d = self._dragging_direction
-                self._dragging_direction = None
-                self._drag_dir_last = None
-
-                if self._has_undo_stack() and self._drag_dir_start_tail and d.tail != self._drag_dir_start_tail:
-                    current_tail = QPointF(d.tail)
-                    original_tail = self._drag_dir_start_tail
-                    d.move_by(original_tail - current_tail)
-                    cmd = MoveDirectionCommand(d, original_tail, current_tail)
-                    self._undo_stack.push(cmd)
-                else:
-                    self.modified.emit()
-
-                self._drag_dir_start_tail = None
-                self.selection_changed.emit()
-                return
-
-            # Finish line body drag
-            if self._dragging_line:
-                ln = self._dragging_line
-                self._dragging_line = None
-                self._drag_line_last = None
-
-                if self._has_undo_stack() and self._drag_line_start_tail and ln.tail != self._drag_line_start_tail:
-                    current_tail = QPointF(ln.tail)
-                    original_tail = self._drag_line_start_tail
-                    ln.move_by(original_tail - current_tail)
-                    cmd = MoveLineCommand(ln, original_tail, current_tail)
-                    self._undo_stack.push(cmd)
-                else:
-                    self.modified.emit()
-
-                self._drag_line_start_tail = None
+                self._drag_anchor = None
                 self.selection_changed.emit()
                 return
 
@@ -864,21 +597,18 @@ class FBDCanvas(QGraphicsView):
         """Find the VectorItem/PointItem/DirectionItem/LineItem/MomentItem that owns a graphics item."""
         if isinstance(graphics_item, (VectorItem, PointItem, DirectionItem, LineItem, MomentItem)):
             return graphics_item
-        if hasattr(graphics_item, '_vec'):
-            return graphics_item._vec
-        if hasattr(graphics_item, '_point'):
-            return graphics_item._point
-        if hasattr(graphics_item, '_dir'):
-            return graphics_item._dir
-        if hasattr(graphics_item, '_line'):
-            return graphics_item._line
-        if hasattr(graphics_item, '_moment'):
-            return graphics_item._moment
+        # BaseLabel / BaseControlPoint / Moment handles all use _parent_item
+        parent = getattr(graphics_item, '_parent_item', None)
+        if parent is not None:
+            return parent
         return None
 
     def _get_all_items(self):
         """Return all canvas items (vectors, points, directions, lines, moments)."""
-        return list(self._vectors) + list(self._points) + list(self._directions) + list(self._lines) + list(self._moments)
+        result = []
+        for items in self._items.values():
+            result.extend(items)
+        return result
 
     def _bring_to_front(self, item):
         all_items = self._get_all_items()
@@ -935,59 +665,19 @@ class FBDCanvas(QGraphicsView):
     # --- Keyboard ---
 
     def delete_selected(self):
-        vec = self.get_selected_vector()
-        if vec:
-            if self._has_undo_stack():
-                cmd = DeleteVectorCommand(self, vec)
-                self._undo_stack.push(cmd)
-            else:
-                self.remove_vector(vec)
-                self.modified.emit()
-                self.selection_changed.emit()
-            return
-
-        point = self.get_selected_point()
-        if point:
-            if self._has_undo_stack():
-                cmd = DeletePointCommand(self, point)
-                self._undo_stack.push(cmd)
-            else:
-                self.remove_point(point)
-                self.modified.emit()
-                self.selection_changed.emit()
-            return
-
-        direction = self.get_selected_direction()
-        if direction:
-            if self._has_undo_stack():
-                cmd = DeleteDirectionCommand(self, direction)
-                self._undo_stack.push(cmd)
-            else:
-                self.remove_direction(direction)
-                self.modified.emit()
-                self.selection_changed.emit()
-            return
-
-        line = self.get_selected_line()
-        if line:
-            if self._has_undo_stack():
-                cmd = DeleteLineCommand(self, line)
-                self._undo_stack.push(cmd)
-            else:
-                self.remove_line(line)
-                self.modified.emit()
-                self.selection_changed.emit()
-            return
-
-        moment = self.get_selected_moment()
-        if moment:
-            if self._has_undo_stack():
-                cmd = DeleteMomentCommand(self, moment)
-                self._undo_stack.push(cmd)
-            else:
-                self.remove_moment(moment)
-                self.modified.emit()
-                self.selection_changed.emit()
+        for type_key, cls in self._type_classes.items():
+            item = self._get_selected_item(cls)
+            if item:
+                if self._has_undo_stack():
+                    if type_key == 'vectors':
+                        self._metadata.total_arrows_deleted += 1
+                    cmd = DeleteItemCommand(self, item, type_key)
+                    self._undo_stack.push(cmd)
+                else:
+                    self._remove_item(type_key, item)
+                    self.modified.emit()
+                    self.selection_changed.emit()
+                return
 
     def keyPressEvent(self, event: QKeyEvent):
         if event.key() == Qt.Key.Key_Backspace:
