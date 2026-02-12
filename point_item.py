@@ -32,7 +32,7 @@ POINT_COLORS = {
 @dataclass
 class PointSettings:
     radius: int = 6
-    color_name: str = "Red"
+    color_name: str = "Black"
 
     @property
     def color(self) -> QColor:

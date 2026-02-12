@@ -52,13 +52,19 @@
         <property name="spacing">
          <number>8</number>
         </property>
+        <property name="leftMargin">
+         <number>5</number>
+        </property>
         <item>
          <widget class="QGroupBox" name="toolsGroupBox">
+          <property name="layoutDirection">
+           <enum>Qt::LeftToRight</enum>
+          </property>
           <property name="title">
            <string>Tools</string>
           </property>
-          <layout class="QHBoxLayout" name="toolsLayout">
-           <item>
+          <layout class="QGridLayout" name="gridLayout">
+           <item row="0" column="0">
             <widget class="QPushButton" name="vectorToolButton">
              <property name="text">
               <string>Create Vector (A)</string>
@@ -68,7 +74,7 @@
              </property>
             </widget>
            </item>
-           <item>
+           <item row="0" column="1">
             <widget class="QPushButton" name="pointToolButton">
              <property name="text">
               <string>Create Point (P)</string>
@@ -78,7 +84,7 @@
              </property>
             </widget>
            </item>
-           <item>
+           <item row="1" column="0">
             <widget class="QPushButton" name="directionToolButton">
              <property name="text">
               <string>Create Direction (D)</string>
@@ -240,18 +246,9 @@
             </widget>
            </item>
            <item row="4" column="1">
-            <widget class="QDoubleSpinBox" name="magnitudeSpinBox">
-             <property name="decimals">
-              <number>3</number>
-             </property>
-             <property name="minimum">
-              <double>0.000000000000000</double>
-             </property>
-             <property name="maximum">
-              <double>99999.000000000000000</double>
-             </property>
-             <property name="value">
-              <double>100.000000000000000</double>
+            <widget class="QLineEdit" name="magnitudeLineEdit">
+             <property name="placeholderText">
+              <string>e.g. 65 kN, \alpha</string>
              </property>
             </widget>
            </item>

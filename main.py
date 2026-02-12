@@ -519,7 +519,7 @@ def main():
         window.endYLabel, window.endYSpinBox,
     ]
     _magnitude_widgets = [
-        window.magnitudeLabel, window.magnitudeSpinBox,
+        window.magnitudeLabel, window.magnitudeLineEdit,
         window.showMagnitudeLabel, window.showMagnitudeCheckBox,
     ]
     _point_only_widgets = [
@@ -558,7 +558,7 @@ def main():
             window.startYSpinBox.setValue(vec.tail.y())
             window.endXSpinBox.setValue(vec.head.x())
             window.endYSpinBox.setValue(vec.head.y())
-            window.magnitudeSpinBox.setValue(vec.magnitude)
+            window.magnitudeLineEdit.setText(vec.magnitude)
             window.showMagnitudeCheckBox.setChecked(vec.show_magnitude)
             window.showLabelCheckBox.setChecked(vec.label_visible)
             window.labelTextLineEdit.setText(vec.label_text)
@@ -718,17 +718,18 @@ def main():
         cmd = ChangeLabelVisibilityCommand(item, old_vis, checked)
         undo_stack.push(cmd)
 
-    def on_magnitude_changed(val):
+    def on_magnitude_changed():
         if _updating_panel:
             return
         vec = window.canvas.get_selected_vector()
         if vec is None:
             return
-        if val == vec.magnitude:
+        new_mag = window.magnitudeLineEdit.text()
+        if new_mag == vec.magnitude:
             return
         old_mag = vec.magnitude
         vec.magnitude = old_mag  # revert for consistent redo
-        cmd = ChangeMagnitudeCommand(vec, old_mag, val)
+        cmd = ChangeMagnitudeCommand(vec, old_mag, new_mag)
         undo_stack.push(cmd)
 
     def on_show_magnitude_toggled(checked):
@@ -802,7 +803,7 @@ def main():
     window.endYSpinBox.valueChanged.connect(on_end_y_changed)
     window.posXSpinBox.valueChanged.connect(on_pos_x_changed)
     window.posYSpinBox.valueChanged.connect(on_pos_y_changed)
-    window.magnitudeSpinBox.valueChanged.connect(on_magnitude_changed)
+    window.magnitudeLineEdit.editingFinished.connect(on_magnitude_changed)
     window.showMagnitudeCheckBox.toggled.connect(on_show_magnitude_toggled)
     window.labelTextLineEdit.editingFinished.connect(on_label_text_changed)
     window.showLabelCheckBox.toggled.connect(on_show_label_toggled)

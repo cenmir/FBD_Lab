@@ -326,7 +326,7 @@ class MoveLabelCommand(QUndoCommand):
 class ChangeMagnitudeCommand(QUndoCommand):
     """Command to change a vector's magnitude value."""
 
-    def __init__(self, vec: VectorItem, old_mag: float, new_mag: float):
+    def __init__(self, vec: VectorItem, old_mag: str, new_mag: str):
         super().__init__("Change Magnitude")
         self._vec = vec
         self._old_mag = old_mag

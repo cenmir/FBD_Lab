@@ -17,9 +17,8 @@ MAGIC_HEADER_V2 = b"FBD_BIN_v2"
 MAGIC_HEADER_V3 = b"FBD_BIN_v3"
 MAGIC_HEADER_V4 = b"FBD_BIN_v4"
 MAGIC_HEADER_V5 = b"FBD_BIN_v5"
-MAGIC_HEADER_V6 = b"FBD_BIN_v6"
-MAGIC_HEADER = b"FBD_BIN_v7"
-ALL_MAGIC_HEADERS = (MAGIC_HEADER, MAGIC_HEADER_V6, MAGIC_HEADER_V5, MAGIC_HEADER_V4, MAGIC_HEADER_V3, MAGIC_HEADER_V2, MAGIC_HEADER_V1)
+MAGIC_HEADER = b"FBD_BIN_v6"
+ALL_MAGIC_HEADERS = (MAGIC_HEADER, MAGIC_HEADER_V5, MAGIC_HEADER_V4, MAGIC_HEADER_V3, MAGIC_HEADER_V2, MAGIC_HEADER_V1)
 MAX_IMAGE_BYTES = 100 * 1024 * 1024  # 100 MB sanity limit
 MAX_VECTOR_COUNT = 10_000
 MAX_POINT_COUNT = 10_000
@@ -166,8 +165,10 @@ def _save_fbd_binary(canvas: FBDCanvas, file_path: Path):
             f.write(struct.pack("<2f",
                 v["label_offset"][0], v["label_offset"][1],
             ))
-            # v3 fields
-            f.write(struct.pack("<f", v["magnitude"]))
+            # v6: magnitude as length-prefixed string (was float in v3-v5)
+            mag_bytes = v["magnitude"].encode("utf-8")
+            f.write(struct.pack("<I", len(mag_bytes)))
+            f.write(mag_bytes)
             f.write(struct.pack("?", v["show_magnitude"]))
             f.write(struct.pack("<I", v["font_size"]))
             # v4 fields
@@ -203,7 +204,7 @@ def _save_fbd_binary(canvas: FBDCanvas, file_path: Path):
             f.write(struct.pack("?", p.get("label_bold", True)))
             f.write(struct.pack("?", p.get("label_italic", True)))
 
-        # v7: Directions
+        # v6: Directions
         directions_data = canvas.get_directions_data()
         f.write(struct.pack("<I", len(directions_data)))
 
@@ -227,15 +228,13 @@ def _save_fbd_binary(canvas: FBDCanvas, file_path: Path):
 
 def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
     with open(file_path, "rb") as f:
-        # Read header — support v1 through v7
+        # Read header — support v1 through v6
         header = _read_exact(f, len(MAGIC_HEADER))
-        version = 7 if header == MAGIC_HEADER else 0
+        version = 6 if header == MAGIC_HEADER else 0
         if version == 0:
             f.seek(0)
-            header = _read_exact(f, len(MAGIC_HEADER_V6))
-            if header == MAGIC_HEADER_V6:
-                version = 6
-            elif header == MAGIC_HEADER_V5:
+            header = _read_exact(f, len(MAGIC_HEADER_V5))
+            if header == MAGIC_HEADER_V5:
                 version = 5
             elif header == MAGIC_HEADER_V4:
                 version = 4
@@ -284,8 +283,18 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
             magnitude = DEFAULT_MAGNITUDE
             show_magnitude = False
             font_size = DEFAULT_FONT_SIZE
-            if version >= 3:
-                magnitude = struct.unpack("<f", _read_exact(f, 4))[0]
+            if version >= 6:
+                # v6: magnitude is a length-prefixed UTF-8 string
+                mag_len = struct.unpack("<I", _read_exact(f, 4))[0]
+                if mag_len > MAX_LABEL_BYTES:
+                    raise ValueError(f"Magnitude size {mag_len} exceeds maximum ({MAX_LABEL_BYTES})")
+                magnitude = _read_exact(f, mag_len).decode("utf-8")
+                show_magnitude = struct.unpack("?", _read_exact(f, 1))[0]
+                font_size = struct.unpack("<I", _read_exact(f, 4))[0]
+            elif version >= 3:
+                # v3-v5: magnitude was a float
+                mag_float = struct.unpack("<f", _read_exact(f, 4))[0]
+                magnitude = "" if mag_float == 100.0 else f"{mag_float:.10g}"
                 show_magnitude = struct.unpack("?", _read_exact(f, 1))[0]
                 font_size = struct.unpack("<I", _read_exact(f, 4))[0]
 
@@ -364,8 +373,8 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
                 })
                 canvas.add_point(pt)
 
-        # v7: Directions
-        if version >= 7:
+        # v6: Directions
+        if version >= 6:
             dir_count = struct.unpack("<I", _read_exact(f, 4))[0]
             if dir_count > MAX_DIRECTION_COUNT:
                 raise ValueError(f"Direction count {dir_count} exceeds maximum ({MAX_DIRECTION_COUNT})")

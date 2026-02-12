@@ -21,6 +21,27 @@ SELECTED_COLOR = QColor(50, 150, 255)
 LABEL_COLOR = QColor(0, 0, 0)
 DEFAULT_LABEL_OFFSET = QPointF(8, -8)
 
+LATEX_TO_UNICODE = {
+    "\\alpha": "\u03b1", "\\beta": "\u03b2", "\\gamma": "\u03b3",
+    "\\delta": "\u03b4", "\\epsilon": "\u03b5", "\\zeta": "\u03b6",
+    "\\eta": "\u03b7", "\\theta": "\u03b8", "\\iota": "\u03b9",
+    "\\kappa": "\u03ba", "\\lambda": "\u03bb", "\\mu": "\u03bc",
+    "\\nu": "\u03bd", "\\xi": "\u03be", "\\pi": "\u03c0",
+    "\\rho": "\u03c1", "\\sigma": "\u03c3", "\\tau": "\u03c4",
+    "\\phi": "\u03c6", "\\chi": "\u03c7", "\\psi": "\u03c8",
+    "\\omega": "\u03c9",
+    "\\Gamma": "\u0393", "\\Delta": "\u0394", "\\Theta": "\u0398",
+    "\\Lambda": "\u039b", "\\Sigma": "\u03a3", "\\Phi": "\u03a6",
+    "\\Psi": "\u03a8", "\\Omega": "\u03a9",
+}
+
+
+def latex_to_unicode(text: str) -> str:
+    """Replace LaTeX Greek letter commands with Unicode characters."""
+    for cmd, char in LATEX_TO_UNICODE.items():
+        text = text.replace(cmd, char)
+    return text
+
 
 @dataclass
 class VectorSettings:
@@ -33,7 +54,7 @@ class VectorSettings:
 
 
 vector_settings = VectorSettings()  # global singleton
-DEFAULT_MAGNITUDE = 100.0
+DEFAULT_MAGNITUDE = ""
 DEFAULT_FONT_SIZE = 22
 
 _CM_FONT_FAMILY: str | None = None
@@ -98,13 +119,6 @@ def label_to_html(text: str, bold: bool = True, italic: bool = True) -> str:
     return "".join(parts)
 
 
-def _format_sig_figs(value: float, figs: int = 3) -> str:
-    """Format a float to a given number of significant figures."""
-    if value == 0:
-        return "0"
-    return f"{value:.{figs}g}"
-
-
 class VectorLabel(QGraphicsTextItem):
     """Draggable label attached to a vector, rendered with HTML formatting."""
 
@@ -127,12 +141,12 @@ class VectorLabel(QGraphicsTextItem):
         """Rebuild the HTML from the parent vector's current state."""
         vec = self._vec
         html = label_to_html(vec._label_text, vec._label_bold, vec._label_italic)
-        if vec._show_magnitude and html:
-            mag_str = _format_sig_figs(vec._magnitude)
-            html += f" = {mag_str}"
-        elif vec._show_magnitude:
-            mag_str = _format_sig_figs(vec._magnitude)
-            html = f"<b>{mag_str}</b>"
+        if vec._show_magnitude and vec._magnitude:
+            mag_display = latex_to_unicode(vec._magnitude)
+            if html:
+                html += f" = {mag_display}"
+            else:
+                html = f"<b>{mag_display}</b>"
         self.setHtml(html)
 
     def update_color(self, selected: bool):
@@ -321,11 +335,11 @@ class VectorItem(QGraphicsPathItem):
         return QPointF(self._head)
 
     @property
-    def magnitude(self) -> float:
+    def magnitude(self) -> str:
         return self._magnitude
 
     @magnitude.setter
-    def magnitude(self, value: float):
+    def magnitude(self, value: str):
         self._magnitude = value
         self._label.update_display()
 
@@ -533,7 +547,11 @@ class VectorItem(QGraphicsPathItem):
         vec._label_visible = data.get("label_visible", False)
         offset = data.get("label_offset", [DEFAULT_LABEL_OFFSET.x(), DEFAULT_LABEL_OFFSET.y()])
         vec._label_offset = QPointF(offset[0], offset[1])
-        vec._magnitude = data.get("magnitude", DEFAULT_MAGNITUDE)
+        raw_mag = data.get("magnitude", DEFAULT_MAGNITUDE)
+        if isinstance(raw_mag, (int, float)):
+            vec._magnitude = "" if raw_mag == 100.0 else f"{raw_mag:.10g}"
+        else:
+            vec._magnitude = raw_mag
         vec._show_magnitude = data.get("show_magnitude", False)
         vec._font_size = data.get("font_size", DEFAULT_FONT_SIZE)
         vec._label_bold = data.get("label_bold", True)

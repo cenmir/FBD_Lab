@@ -9,9 +9,10 @@ from PyQt6.QtGui import (
     QImage, QKeySequence, QMouseEvent, QPen, QColor, QPainter,
     QUndoStack,
 )
+from PyQt6.QtGui import QBrush
 from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
-    QGraphicsLineItem, QApplication,
+    QGraphicsRectItem, QGraphicsLineItem, QApplication,
 )
 
 from vector_item import VectorItem
@@ -81,6 +82,16 @@ class FBDCanvas(QGraphicsView):
         super().__init__(parent)
         self._scene = QGraphicsScene(self)
         self.setScene(self._scene)
+
+        # White canvas background (sits below everything)
+        self._canvas_rect = QGraphicsRectItem(0, 0, 800, 600)
+        self._canvas_rect.setBrush(QBrush(QColor(255, 255, 255)))
+        self._canvas_rect.setPen(QPen(Qt.PenStyle.NoPen))
+        self._canvas_rect.setZValue(-2000)
+        self._canvas_rect.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsSelectable, False)
+        self._canvas_rect.setFlag(QGraphicsRectItem.GraphicsItemFlag.ItemIsMovable, False)
+        self._scene.addItem(self._canvas_rect)
+
         self._bg_item: QGraphicsPixmapItem | None = None
         self._vectors: list[VectorItem] = []
         self._points: list[PointItem] = []
@@ -179,8 +190,11 @@ class FBDCanvas(QGraphicsView):
             self._scene.addItem(self._bg_item)
             if not self._bg_visible:
                 self._bg_item.setVisible(False)
-            self._scene.setSceneRect(self._bg_item.boundingRect())
+            rect = self._bg_item.boundingRect()
+            self._canvas_rect.setRect(rect)
+            self._scene.setSceneRect(rect)
         else:
+            self._canvas_rect.setRect(0, 0, 800, 600)
             self._scene.setSceneRect(0, 0, 800, 600)
 
         self.modified.emit()
