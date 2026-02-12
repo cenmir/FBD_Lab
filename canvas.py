@@ -16,9 +16,11 @@ from PyQt6.QtWidgets import (
 
 from vector_item import VectorItem
 from point_item import PointItem
+from direction_item import DirectionItem
 from commands import (
     AddVectorCommand, DeleteVectorCommand, MoveVectorCommand,
     AddPointCommand, DeletePointCommand, MovePointCommand,
+    AddDirectionCommand, DeleteDirectionCommand, MoveDirectionCommand,
 )
 
 
@@ -66,6 +68,7 @@ class ToolMode(Enum):
     SELECT = auto()
     VECTOR = auto()
     POINT = auto()
+    DIRECTION = auto()
 
 
 class FBDCanvas(QGraphicsView):
@@ -81,6 +84,7 @@ class FBDCanvas(QGraphicsView):
         self._bg_item: QGraphicsPixmapItem | None = None
         self._vectors: list[VectorItem] = []
         self._points: list[PointItem] = []
+        self._directions: list[DirectionItem] = []
         self._undo_stack: QUndoStack | None = None
 
         # Session metadata
@@ -103,10 +107,16 @@ class FBDCanvas(QGraphicsView):
         self._drag_start_pos: QPointF | None = None
         self._drag_point_last: QPointF | None = None
 
+        # Body-drag state (directions)
+        self._dragging_direction: DirectionItem | None = None
+        self._drag_dir_start_tail: QPointF | None = None
+        self._drag_dir_last: QPointF | None = None
+
         # Layer visibility flags
         self._bg_visible = True
         self._vectors_visible = True
         self._points_visible = True
+        self._directions_visible = True
 
         # Rendering
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
@@ -147,6 +157,9 @@ class FBDCanvas(QGraphicsView):
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.setCursor(Qt.CursorShape.CrossCursor)
         elif mode == ToolMode.POINT:
+            self.setDragMode(QGraphicsView.DragMode.NoDrag)
+            self.setCursor(Qt.CursorShape.CrossCursor)
+        elif mode == ToolMode.DIRECTION:
             self.setDragMode(QGraphicsView.DragMode.NoDrag)
             self.setCursor(Qt.CursorShape.CrossCursor)
         self.tool_changed.emit(mode)
@@ -256,6 +269,44 @@ class FBDCanvas(QGraphicsView):
         for point in list(self._points):
             self.remove_point(point)
 
+    # --- Directions ---
+
+    def add_direction(self, direction: DirectionItem):
+        if direction not in self._directions:
+            self._scene.addItem(direction)
+            direction.added_to_scene(self._scene)
+            direction.on_modified = lambda: self.modified.emit()
+            if self._has_undo_stack():
+                direction.on_push_undo = lambda cmd: self._undo_stack.push(cmd)
+            self._directions.append(direction)
+            if not self._directions_visible:
+                direction.setVisible(False)
+                direction._label.setVisible(False)
+                direction._tail_handle.setVisible(False)
+                direction._head_handle.setVisible(False)
+
+    def remove_direction(self, direction: DirectionItem):
+        if direction in self._directions:
+            direction.removed_from_scene(self._scene)
+            self._scene.removeItem(direction)
+            self._directions.remove(direction)
+
+    def get_directions(self) -> list[DirectionItem]:
+        return list(self._directions)
+
+    def get_directions_data(self) -> list[dict]:
+        return [d.to_dict() for d in self._directions]
+
+    def get_selected_direction(self) -> DirectionItem | None:
+        for item in self._scene.selectedItems():
+            if isinstance(item, DirectionItem):
+                return item
+        return None
+
+    def clear_directions(self):
+        for d in list(self._directions):
+            self.remove_direction(d)
+
     # --- Layer visibility ---
 
     def set_background_visible(self, visible: bool):
@@ -281,10 +332,19 @@ class FBDCanvas(QGraphicsView):
                 visible and pt._label_visible and bool(pt._label_text)
             )
 
+    def set_directions_visible(self, visible: bool):
+        self._directions_visible = visible
+        for d in self._directions:
+            d.setVisible(visible)
+            d._label.setVisible(
+                visible and d._label_visible and bool(d._label_text)
+            )
+            d._tail_handle.setVisible(visible)
+            d._head_handle.setVisible(visible)
+
     # Future layers:
     # def set_rectangles_visible(self, visible: bool): ...
     # def set_circles_visible(self, visible: bool): ...
-    # def set_directions_visible(self, visible: bool): ...
     # def set_moments_visible(self, visible: bool): ...
     # def set_lines_visible(self, visible: bool): ...
 
@@ -317,6 +377,16 @@ class FBDCanvas(QGraphicsView):
         if event.button() == Qt.MouseButton.LeftButton:
             # Vector creation mode
             if self._tool == ToolMode.VECTOR:
+                self._drawing = True
+                self._draw_start = self.mapToScene(event.pos())
+                self._preview_line = QGraphicsLineItem()
+                self._preview_line.setPen(QPen(QColor(0, 0, 0, 180), 2, Qt.PenStyle.DashLine))
+                self._preview_line.setZValue(100)
+                self._scene.addItem(self._preview_line)
+                return
+
+            # Direction creation mode (same click-drag as vector)
+            if self._tool == ToolMode.DIRECTION:
                 self._drawing = True
                 self._draw_start = self.mapToScene(event.pos())
                 self._preview_line = QGraphicsLineItem()
@@ -365,6 +435,14 @@ class FBDCanvas(QGraphicsView):
                         self._scene.clearSelection()
                         item.setSelected(True)
                     return
+                if isinstance(item, DirectionItem):
+                    self._dragging_direction = item
+                    self._drag_dir_start_tail = QPointF(item.tail)
+                    self._drag_dir_last = scene_pos
+                    if not item.isSelected():
+                        self._scene.clearSelection()
+                        item.setSelected(True)
+                    return
 
         super().mousePressEvent(event)
 
@@ -396,12 +474,21 @@ class FBDCanvas(QGraphicsView):
             self._drag_point_last = scene_pos
             return
 
+        # Direction body drag
+        if self._dragging_direction and self._drag_dir_last:
+            scene_pos = self.mapToScene(event.pos())
+            delta = scene_pos - self._drag_dir_last
+            self._dragging_direction.move_by(delta)
+            self._drag_dir_last = scene_pos
+            return
+
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
         if event.button() == Qt.MouseButton.LeftButton:
-            # Finish vector creation
+            # Finish vector/direction creation
             if self._drawing:
+                creating_tool = self._tool
                 self._drawing = False
                 end = self.mapToScene(event.pos())
                 snap = not (event.modifiers() & Qt.KeyboardModifier.ControlModifier)
@@ -416,20 +503,29 @@ class FBDCanvas(QGraphicsView):
                     dx = end.x() - self._draw_start.x()
                     dy = end.y() - self._draw_start.y()
                     if (dx * dx + dy * dy) > 100:  # min 10px
-                        vec = VectorItem(self._draw_start, end)
-                        vec.label_text = f"F_{len(self._vectors) + 1}"
-                        vec.label_visible = True
-
-                        if self._has_undo_stack():
-                            cmd = AddVectorCommand(self, vec)
-                            self._undo_stack.push(cmd)
+                        if creating_tool == ToolMode.DIRECTION:
+                            d = DirectionItem(self._draw_start, end)
+                            if self._has_undo_stack():
+                                cmd = AddDirectionCommand(self, d)
+                                self._undo_stack.push(cmd)
+                            else:
+                                self.add_direction(d)
+                                self.modified.emit()
+                            self._scene.clearSelection()
+                            d.setSelected(True)
                         else:
-                            self.add_vector(vec)
-                            self.modified.emit()
-
-                        self._scene.clearSelection()
-                        vec.setSelected(True)
-                        self.vector_created.emit(vec)
+                            vec = VectorItem(self._draw_start, end)
+                            vec.label_text = f"F_{len(self._vectors) + 1}"
+                            vec.label_visible = True
+                            if self._has_undo_stack():
+                                cmd = AddVectorCommand(self, vec)
+                                self._undo_stack.push(cmd)
+                            else:
+                                self.add_vector(vec)
+                                self.modified.emit()
+                            self._scene.clearSelection()
+                            vec.setSelected(True)
+                            self.vector_created.emit(vec)
                 self._draw_start = None
                 self.set_tool(ToolMode.SELECT)
                 return
@@ -469,6 +565,25 @@ class FBDCanvas(QGraphicsView):
                     self.modified.emit()
 
                 self._drag_start_pos = None
+                self.selection_changed.emit()
+                return
+
+            # Finish direction body drag
+            if self._dragging_direction:
+                d = self._dragging_direction
+                self._dragging_direction = None
+                self._drag_dir_last = None
+
+                if self._has_undo_stack() and self._drag_dir_start_tail and d.tail != self._drag_dir_start_tail:
+                    current_tail = QPointF(d.tail)
+                    original_tail = self._drag_dir_start_tail
+                    d.move_by(original_tail - current_tail)
+                    cmd = MoveDirectionCommand(d, original_tail, current_tail)
+                    self._undo_stack.push(cmd)
+                else:
+                    self.modified.emit()
+
+                self._drag_dir_start_tail = None
                 self.selection_changed.emit()
                 return
 
@@ -522,6 +637,17 @@ class FBDCanvas(QGraphicsView):
                 self._undo_stack.push(cmd)
             else:
                 self.remove_point(point)
+                self.modified.emit()
+                self.selection_changed.emit()
+            return
+
+        direction = self.get_selected_direction()
+        if direction:
+            if self._has_undo_stack():
+                cmd = DeleteDirectionCommand(self, direction)
+                self._undo_stack.push(cmd)
+            else:
+                self.remove_direction(direction)
                 self.modified.emit()
                 self.selection_changed.emit()
 

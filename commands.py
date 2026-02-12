@@ -3,6 +3,7 @@ from PyQt6.QtGui import QUndoCommand
 
 from vector_item import VectorItem
 from point_item import PointItem
+from direction_item import DirectionItem
 
 
 # ---------------------------------------------------------------------------
@@ -148,6 +149,110 @@ class MovePointCommand(QUndoCommand):
         self._point.move_by(-self._delta)
         if self._point.on_modified:
             self._point.on_modified()
+
+
+# ---------------------------------------------------------------------------
+# Direction commands
+# ---------------------------------------------------------------------------
+
+class AddDirectionCommand(QUndoCommand):
+    """Command to add a direction to the canvas."""
+
+    def __init__(self, canvas, direction: DirectionItem):
+        super().__init__("Add Direction")
+        self._canvas = canvas
+        self._dir = direction
+
+    def redo(self):
+        self._canvas.add_direction(self._dir)
+        self._canvas.modified.emit()
+
+    def undo(self):
+        self._canvas.remove_direction(self._dir)
+        self._canvas.modified.emit()
+        self._canvas.selection_changed.emit()
+
+
+class DeleteDirectionCommand(QUndoCommand):
+    """Command to delete a direction from the canvas."""
+
+    def __init__(self, canvas, direction: DirectionItem):
+        super().__init__("Delete Direction")
+        self._canvas = canvas
+        self._dir = direction
+
+    def redo(self):
+        self._canvas.remove_direction(self._dir)
+        self._canvas.modified.emit()
+        self._canvas.selection_changed.emit()
+
+    def undo(self):
+        self._canvas.add_direction(self._dir)
+        self._canvas.modified.emit()
+
+
+class MoveDirectionCommand(QUndoCommand):
+    """Command to move a direction by a delta."""
+
+    def __init__(self, direction: DirectionItem, old_tail: QPointF, new_tail: QPointF):
+        super().__init__("Move Direction")
+        self._dir = direction
+        self._delta = new_tail - old_tail
+
+    def redo(self):
+        self._dir.move_by(self._delta)
+        if self._dir.on_modified:
+            self._dir.on_modified()
+
+    def undo(self):
+        self._dir.move_by(-self._delta)
+        if self._dir.on_modified:
+            self._dir.on_modified()
+
+
+class ResizeDirectionCommand(QUndoCommand):
+    """Command to change a direction's tail or head endpoint."""
+
+    def __init__(self, direction: DirectionItem, old_tail: QPointF, old_head: QPointF,
+                 new_tail: QPointF, new_head: QPointF):
+        super().__init__("Resize Direction")
+        self._dir = direction
+        self._old_tail = QPointF(old_tail)
+        self._old_head = QPointF(old_head)
+        self._new_tail = QPointF(new_tail)
+        self._new_head = QPointF(new_head)
+
+    def redo(self):
+        self._dir.set_tail(self._new_tail)
+        self._dir.set_head(self._new_head)
+        if self._dir.on_modified:
+            self._dir.on_modified()
+
+    def undo(self):
+        self._dir.set_tail(self._old_tail)
+        self._dir.set_head(self._old_head)
+        if self._dir.on_modified:
+            self._dir.on_modified()
+
+
+class ChangeShowArrowheadCommand(QUndoCommand):
+    """Command to toggle a direction's arrowhead visibility."""
+
+    def __init__(self, direction: DirectionItem, old_val: bool, new_val: bool):
+        super().__init__("Toggle Arrowhead")
+        self._dir = direction
+        self._old_val = old_val
+        self._new_val = new_val
+
+    def redo(self):
+        self._dir.show_arrowhead = self._new_val
+        if self._dir.on_modified:
+            self._dir.on_modified()
+
+    def undo(self):
+        self._dir.show_arrowhead = self._old_val
+        if self._dir.on_modified:
+            self._dir.on_modified()
 
 
 # ---------------------------------------------------------------------------

@@ -9,6 +9,7 @@ from PyQt6.QtGui import QPixmap
 from canvas import FBDCanvas, SessionMetadata
 from vector_item import VectorItem, DEFAULT_MAGNITUDE, DEFAULT_FONT_SIZE
 from point_item import PointItem
+from direction_item import DirectionItem
 
 FBD_VERSION = 1
 MAGIC_HEADER_V1 = b"FBD_BIN_v1"
@@ -16,11 +17,13 @@ MAGIC_HEADER_V2 = b"FBD_BIN_v2"
 MAGIC_HEADER_V3 = b"FBD_BIN_v3"
 MAGIC_HEADER_V4 = b"FBD_BIN_v4"
 MAGIC_HEADER_V5 = b"FBD_BIN_v5"
-MAGIC_HEADER = b"FBD_BIN_v6"
-ALL_MAGIC_HEADERS = (MAGIC_HEADER, MAGIC_HEADER_V5, MAGIC_HEADER_V4, MAGIC_HEADER_V3, MAGIC_HEADER_V2, MAGIC_HEADER_V1)
+MAGIC_HEADER_V6 = b"FBD_BIN_v6"
+MAGIC_HEADER = b"FBD_BIN_v7"
+ALL_MAGIC_HEADERS = (MAGIC_HEADER, MAGIC_HEADER_V6, MAGIC_HEADER_V5, MAGIC_HEADER_V4, MAGIC_HEADER_V3, MAGIC_HEADER_V2, MAGIC_HEADER_V1)
 MAX_IMAGE_BYTES = 100 * 1024 * 1024  # 100 MB sanity limit
 MAX_VECTOR_COUNT = 10_000
 MAX_POINT_COUNT = 10_000
+MAX_DIRECTION_COUNT = 10_000
 MAX_LABEL_BYTES = 10_000
 
 
@@ -91,6 +94,7 @@ def _save_fbd_json(canvas: FBDCanvas, file_path: Path):
         "background_image": pixmap_to_base64(bg_pixmap) if bg_pixmap else None,
         "arrows": canvas.get_vectors_data(),
         "points": canvas.get_points_data(),
+        "directions": canvas.get_directions_data(),
         "metadata": canvas.metadata.to_dict(),
     }
     file_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
@@ -103,6 +107,7 @@ def _load_fbd_json(canvas: FBDCanvas, file_path: Path):
     # Clear existing state first
     canvas.clear_vectors()
     canvas.clear_points()
+    canvas.clear_directions()
 
     # Restore background
     bg_data = data.get("background_image")
@@ -120,6 +125,11 @@ def _load_fbd_json(canvas: FBDCanvas, file_path: Path):
     for pt_data in data.get("points", []):
         pt = PointItem.from_dict(pt_data)
         canvas.add_point(pt)
+
+    # Restore directions
+    for dir_data in data.get("directions", []):
+        d = DirectionItem.from_dict(dir_data)
+        canvas.add_direction(d)
 
     # Restore metadata
     meta_data = data.get("metadata")
@@ -193,16 +203,39 @@ def _save_fbd_binary(canvas: FBDCanvas, file_path: Path):
             f.write(struct.pack("?", p.get("label_bold", True)))
             f.write(struct.pack("?", p.get("label_italic", True)))
 
+        # v7: Directions
+        directions_data = canvas.get_directions_data()
+        f.write(struct.pack("<I", len(directions_data)))
+
+        for d in directions_data:
+            f.write(struct.pack("<4f",
+                d["tail"][0], d["tail"][1],
+                d["head"][0], d["head"][1],
+            ))
+            label_bytes = d["label_text"].encode("utf-8")
+            f.write(struct.pack("<I", len(label_bytes)))
+            f.write(label_bytes)
+            f.write(struct.pack("?", d["label_visible"]))
+            f.write(struct.pack("<2f",
+                d["label_offset"][0], d["label_offset"][1],
+            ))
+            f.write(struct.pack("<I", d["font_size"]))
+            f.write(struct.pack("?", d.get("label_bold", True)))
+            f.write(struct.pack("?", d.get("label_italic", True)))
+            f.write(struct.pack("?", d.get("show_arrowhead", False)))
+
 
 def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
     with open(file_path, "rb") as f:
-        # Read header — support v1 through v6
+        # Read header — support v1 through v7
         header = _read_exact(f, len(MAGIC_HEADER))
-        version = 6 if header == MAGIC_HEADER else 0
+        version = 7 if header == MAGIC_HEADER else 0
         if version == 0:
             f.seek(0)
-            header = _read_exact(f, len(MAGIC_HEADER_V5))
-            if header == MAGIC_HEADER_V5:
+            header = _read_exact(f, len(MAGIC_HEADER_V6))
+            if header == MAGIC_HEADER_V6:
+                version = 6
+            elif header == MAGIC_HEADER_V5:
                 version = 5
             elif header == MAGIC_HEADER_V4:
                 version = 4
@@ -218,6 +251,7 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
         # Clear existing state first
         canvas.clear_vectors()
         canvas.clear_points()
+        canvas.clear_directions()
 
         # Background image
         img_len = struct.unpack("<I", _read_exact(f, 4))[0]
@@ -329,3 +363,35 @@ def _load_fbd_binary(canvas: FBDCanvas, file_path: Path):
                     "label_italic": label_italic,
                 })
                 canvas.add_point(pt)
+
+        # v7: Directions
+        if version >= 7:
+            dir_count = struct.unpack("<I", _read_exact(f, 4))[0]
+            if dir_count > MAX_DIRECTION_COUNT:
+                raise ValueError(f"Direction count {dir_count} exceeds maximum ({MAX_DIRECTION_COUNT})")
+
+            for _ in range(dir_count):
+                x1, y1, x2, y2 = struct.unpack("<4f", _read_exact(f, 16))
+                lbl_len = struct.unpack("<I", _read_exact(f, 4))[0]
+                if lbl_len > MAX_LABEL_BYTES:
+                    raise ValueError(f"Label size {lbl_len} exceeds maximum ({MAX_LABEL_BYTES})")
+                label_text = _read_exact(f, lbl_len).decode("utf-8")
+                label_visible = struct.unpack("?", _read_exact(f, 1))[0]
+                ox, oy = struct.unpack("<2f", _read_exact(f, 8))
+                font_size = struct.unpack("<I", _read_exact(f, 4))[0]
+                label_bold = struct.unpack("?", _read_exact(f, 1))[0]
+                label_italic = struct.unpack("?", _read_exact(f, 1))[0]
+                show_arrowhead = struct.unpack("?", _read_exact(f, 1))[0]
+
+                d = DirectionItem.from_dict({
+                    "tail": [x1, y1],
+                    "head": [x2, y2],
+                    "label_text": label_text,
+                    "label_visible": label_visible,
+                    "label_offset": [ox, oy],
+                    "font_size": font_size,
+                    "label_bold": label_bold,
+                    "label_italic": label_italic,
+                    "show_arrowhead": show_arrowhead,
+                })
+                canvas.add_direction(d)

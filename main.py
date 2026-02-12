@@ -28,6 +28,7 @@ from commands import (
     ChangeMagnitudeCommand, ChangeShowMagnitudeCommand, ChangeFontSizeCommand,
     ChangeLabelBoldCommand, ChangeLabelItalicCommand,
     MovePointCommand,
+    ResizeDirectionCommand, ChangeShowArrowheadCommand,
 )
 from file_io import save_fbd, load_fbd
 
@@ -239,6 +240,7 @@ def main():
             return
         window.canvas.clear_vectors()
         window.canvas.clear_points()
+        window.canvas.clear_directions()
         window.canvas.set_background(QPixmap())
         _init_new_metadata()
         current_file = None
@@ -458,20 +460,32 @@ def main():
         else:
             window.canvas.set_tool(ToolMode.SELECT)
 
+    def on_direction_toggle(checked):
+        if checked:
+            window.canvas.set_tool(ToolMode.DIRECTION)
+        else:
+            window.canvas.set_tool(ToolMode.SELECT)
+
     window.vectorToolButton.toggled.connect(on_vector_toggle)
     window.pointToolButton.toggled.connect(on_point_toggle)
+    window.directionToolButton.toggled.connect(on_direction_toggle)
 
     def on_tool_changed(mode):
         window.vectorToolButton.blockSignals(True)
         window.pointToolButton.blockSignals(True)
+        window.directionToolButton.blockSignals(True)
         window.vectorToolButton.setChecked(mode == ToolMode.VECTOR)
         window.pointToolButton.setChecked(mode == ToolMode.POINT)
+        window.directionToolButton.setChecked(mode == ToolMode.DIRECTION)
         window.vectorToolButton.blockSignals(False)
         window.pointToolButton.blockSignals(False)
+        window.directionToolButton.blockSignals(False)
         if mode == ToolMode.VECTOR:
             window.statusbar.showMessage("Vector creation mode — click and drag to draw")
         elif mode == ToolMode.POINT:
             window.statusbar.showMessage("Point creation mode — click to place a point")
+        elif mode == ToolMode.DIRECTION:
+            window.statusbar.showMessage("Direction creation mode — click and drag to draw")
         else:
             window.statusbar.showMessage("Ready")
 
@@ -487,6 +501,10 @@ def main():
     shortcut_p = QShortcut(QKeySequence("P"), window)
     shortcut_p.activated.connect(lambda: window.pointToolButton.toggle())
 
+    # "D" shortcut to toggle direction mode
+    shortcut_d = QShortcut(QKeySequence("D"), window)
+    shortcut_d.activated.connect(lambda: window.directionToolButton.toggle())
+
     # Delete action
     window.actionDelete.triggered.connect(window.canvas.delete_selected)
 
@@ -494,11 +512,13 @@ def main():
     _updating_panel = False  # guard against feedback loops
 
     # Widget groups for conditional visibility
-    _vector_only_widgets = [
+    _start_end_widgets = [
         window.startXLabel, window.startXSpinBox,
         window.startYLabel, window.startYSpinBox,
         window.endXLabel, window.endXSpinBox,
         window.endYLabel, window.endYSpinBox,
+    ]
+    _magnitude_widgets = [
         window.magnitudeLabel, window.magnitudeSpinBox,
         window.showMagnitudeLabel, window.showMagnitudeCheckBox,
     ]
@@ -506,27 +526,33 @@ def main():
         window.posXLabel, window.posXSpinBox,
         window.posYLabel, window.posYSpinBox,
     ]
+    _direction_only_widgets = [
+        window.showArrowheadLabel, window.showArrowheadCheckBox,
+    ]
 
     def sync_panel():
         nonlocal _updating_panel
         try:
             vec = window.canvas.get_selected_vector()
             point = window.canvas.get_selected_point()
+            direction = window.canvas.get_selected_direction()
         except RuntimeError:
             return  # scene already destroyed during shutdown
 
-        if vec is None and point is None:
+        if vec is None and point is None and direction is None:
             window.propertiesGroupBox.setVisible(False)
             return
 
         window.propertiesGroupBox.setVisible(True)
         _updating_panel = True
 
+        # Hide all conditional widget groups first
+        for w in _start_end_widgets + _magnitude_widgets + _point_only_widgets + _direction_only_widgets:
+            w.setVisible(False)
+
         if vec is not None:
-            for w in _vector_only_widgets:
+            for w in _start_end_widgets + _magnitude_widgets:
                 w.setVisible(True)
-            for w in _point_only_widgets:
-                w.setVisible(False)
 
             window.startXSpinBox.setValue(vec.tail.x())
             window.startYSpinBox.setValue(vec.tail.y())
@@ -540,9 +566,22 @@ def main():
             window.boldButton.setChecked(vec.label_bold)
             window.italicButton.setChecked(vec.label_italic)
 
+        elif direction is not None:
+            for w in _start_end_widgets + _direction_only_widgets:
+                w.setVisible(True)
+
+            window.startXSpinBox.setValue(direction.tail.x())
+            window.startYSpinBox.setValue(direction.tail.y())
+            window.endXSpinBox.setValue(direction.head.x())
+            window.endYSpinBox.setValue(direction.head.y())
+            window.showArrowheadCheckBox.setChecked(direction.show_arrowhead)
+            window.showLabelCheckBox.setChecked(direction.label_visible)
+            window.labelTextLineEdit.setText(direction.label_text)
+            window.fontSizeSpinBox.setValue(direction.font_size)
+            window.boldButton.setChecked(direction.label_bold)
+            window.italicButton.setChecked(direction.label_italic)
+
         elif point is not None:
-            for w in _vector_only_widgets:
-                w.setVisible(False)
             for w in _point_only_widgets:
                 w.setVisible(True)
 
@@ -564,55 +603,65 @@ def main():
     # --- Properties panel write-back ---
 
     def _get_selected_item():
-        """Return the selected vector or point (whichever is active)."""
-        return window.canvas.get_selected_vector() or window.canvas.get_selected_point()
+        """Return the selected vector, direction, or point (whichever is active)."""
+        return (window.canvas.get_selected_vector()
+                or window.canvas.get_selected_direction()
+                or window.canvas.get_selected_point())
 
-    def _push_resize(vec, old_tail, old_head, new_tail, new_head):
-        """Push a resize command, reverting vector first for consistent redo."""
-        vec.set_tail(old_tail)
-        vec.set_head(old_head)
-        cmd = ResizeVectorCommand(vec, old_tail, old_head, new_tail, new_head)
+    def _get_selected_line_item():
+        """Return the selected vector or direction (items with tail/head)."""
+        return window.canvas.get_selected_vector() or window.canvas.get_selected_direction()
+
+    def _push_resize(item, old_tail, old_head, new_tail, new_head):
+        """Push a resize command, reverting item first for consistent redo."""
+        from direction_item import DirectionItem
+        item.set_tail(old_tail)
+        item.set_head(old_head)
+        if isinstance(item, DirectionItem):
+            cmd = ResizeDirectionCommand(item, old_tail, old_head, new_tail, new_head)
+        else:
+            cmd = ResizeVectorCommand(item, old_tail, old_head, new_tail, new_head)
         undo_stack.push(cmd)
 
     def on_start_x_changed(val):
         if _updating_panel:
             return
-        vec = window.canvas.get_selected_vector()
-        if vec is None:
+        item = _get_selected_line_item()
+        if item is None:
             return
-        old_tail, old_head = vec.tail, vec.head
+        old_tail, old_head = item.tail, item.head
         new_tail = QPointF(val, old_tail.y())
-        _push_resize(vec, old_tail, old_head, new_tail, old_head)
+        _push_resize(item, old_tail, old_head, new_tail, old_head)
 
     def on_start_y_changed(val):
         if _updating_panel:
             return
-        vec = window.canvas.get_selected_vector()
-        if vec is None:
+        item = _get_selected_line_item()
+        if item is None:
             return
-        old_tail, old_head = vec.tail, vec.head
+        old_tail, old_head = item.tail, item.head
         new_tail = QPointF(old_tail.x(), val)
-        _push_resize(vec, old_tail, old_head, new_tail, old_head)
+        _push_resize(item, old_tail, old_head, new_tail, old_head)
 
     def on_end_x_changed(val):
         if _updating_panel:
             return
-        vec = window.canvas.get_selected_vector()
-        if vec is None:
+        item = _get_selected_line_item()
+        if item is None:
             return
-        old_tail, old_head = vec.tail, vec.head
+        old_tail, old_head = item.tail, item.head
         new_head = QPointF(val, old_head.y())
-        _push_resize(vec, old_tail, old_head, old_tail, new_head)
+        _push_resize(item, old_tail, old_head, old_tail, new_head)
 
     def on_end_y_changed(val):
         if _updating_panel:
             return
-        vec = window.canvas.get_selected_vector()
-        if vec is None:
+        item = _get_selected_line_item()
+        if item is None:
             return
-        old_tail, old_head = vec.tail, vec.head
+        old_tail, old_head = item.tail, item.head
         new_head = QPointF(old_head.x(), val)
-        _push_resize(vec, old_tail, old_head, old_tail, new_head)
+        _push_resize(item, old_tail, old_head, old_tail, new_head)
 
     def on_pos_x_changed(val):
         if _updating_panel:
@@ -734,6 +783,19 @@ def main():
         cmd = ChangeLabelItalicCommand(item, old_val, checked)
         undo_stack.push(cmd)
 
+    def on_show_arrowhead_toggled(checked):
+        if _updating_panel:
+            return
+        direction = window.canvas.get_selected_direction()
+        if direction is None:
+            return
+        if checked == direction.show_arrowhead:
+            return
+        old_val = direction.show_arrowhead
+        direction.show_arrowhead = old_val  # revert for consistent redo
+        cmd = ChangeShowArrowheadCommand(direction, old_val, checked)
+        undo_stack.push(cmd)
+
     window.startXSpinBox.valueChanged.connect(on_start_x_changed)
     window.startYSpinBox.valueChanged.connect(on_start_y_changed)
     window.endXSpinBox.valueChanged.connect(on_end_x_changed)
@@ -747,15 +809,16 @@ def main():
     window.fontSizeSpinBox.valueChanged.connect(on_font_size_changed)
     window.boldButton.toggled.connect(on_bold_toggled)
     window.italicButton.toggled.connect(on_italic_toggled)
+    window.showArrowheadCheckBox.toggled.connect(on_show_arrowhead_toggled)
 
     # --- Layer visibility checkboxes ---
     window.backgroundLayerCheckBox.toggled.connect(window.canvas.set_background_visible)
     window.vectorsLayerCheckBox.toggled.connect(window.canvas.set_vectors_visible)
     window.pointsLayerCheckBox.toggled.connect(window.canvas.set_points_visible)
+    window.directionsLayerCheckBox.toggled.connect(window.canvas.set_directions_visible)
     # Future layers:
     # window.rectanglesLayerCheckBox.toggled.connect(window.canvas.set_rectangles_visible)
     # window.circlesLayerCheckBox.toggled.connect(window.canvas.set_circles_visible)
-    # window.directionsLayerCheckBox.toggled.connect(window.canvas.set_directions_visible)
     # window.momentsLayerCheckBox.toggled.connect(window.canvas.set_moments_visible)
     # window.linesLayerCheckBox.toggled.connect(window.canvas.set_lines_visible)
 
