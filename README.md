@@ -39,6 +39,16 @@ uv run main.py
 | `Ctrl+N` | New |
 | `Ctrl+Q` | Quit |
 
+## File Association (Windows)
+
+To open `.fbd` and `.fbdb` files by double-clicking:
+
+1. Download and run `FBD Lab v*.exe` from the [Releases](https://github.com/cenmir/FBD_Lab/releases) page
+2. Go to **File → Register File Types (.fbd, .fbdb)**
+3. Done — double-clicking any `.fbd` or `.fbdb` file will now open it in FBD Lab
+
+> **Note:** This only works when running the standalone `.exe`, not from a Python script.
+
 ## Grading Workflow
 
 1. Instructor provides a problem image
