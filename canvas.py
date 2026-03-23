@@ -23,6 +23,7 @@ from moment_item import MomentItem
 from rectangle_item import RectangleItem
 from polygon_item import PolygonItem
 from ellipse_item import EllipseItem
+from text_item import TextItem
 from commands import (
     AddItemCommand, DeleteItemCommand, MoveItemCommand,
     ChangeRadiusCommand, ChangeZValueCommand,
@@ -79,6 +80,7 @@ class ToolMode(Enum):
     RECTANGLE = auto()
     POLYGON = auto()
     ELLIPSE = auto()
+    TEXT = auto()
 
 
 class FBDCanvas(QGraphicsView):
@@ -114,6 +116,7 @@ class FBDCanvas(QGraphicsView):
             'rectangles': [],
             'polygons': [],
             'ellipses': [],
+            'texts': [],
         }
         self._visibility: dict[str, bool] = {
             'vectors': True,
@@ -124,6 +127,7 @@ class FBDCanvas(QGraphicsView):
             'rectangles': True,
             'polygons': True,
             'ellipses': True,
+            'texts': True,
         }
         self._type_classes: dict[str, type] = {
             'vectors': VectorItem,
@@ -134,6 +138,7 @@ class FBDCanvas(QGraphicsView):
             'rectangles': RectangleItem,
             'polygons': PolygonItem,
             'ellipses': EllipseItem,
+            'texts': TextItem,
         }
 
         # Session metadata
@@ -404,6 +409,13 @@ class FBDCanvas(QGraphicsView):
     def get_selected_ellipse(self):     return self._get_selected_item(EllipseItem)
     def clear_ellipses(self):           self._clear_items('ellipses')
 
+    def add_text(self, t):              self._add_item('texts', t)
+    def remove_text(self, t):           self._remove_item('texts', t)
+    def get_texts(self):                return self._get_items('texts')
+    def get_texts_data(self):           return self._get_items_data('texts')
+    def get_selected_text(self):        return self._get_selected_item(TextItem)
+    def clear_texts(self):              self._clear_items('texts')
+
     # --- Layer visibility ---
 
     def set_background_visible(self, visible: bool):
@@ -419,6 +431,7 @@ class FBDCanvas(QGraphicsView):
     def set_rectangles_visible(self, visible):  self._set_type_visible('rectangles', visible)
     def set_polygons_visible(self, visible):    self._set_type_visible('polygons', visible)
     def set_ellipses_visible(self, visible):   self._set_type_visible('ellipses', visible)
+    def set_texts_visible(self, visible):      self._set_type_visible('texts', visible)
 
     # --- Snapping ---
 
@@ -551,6 +564,22 @@ class FBDCanvas(QGraphicsView):
                 self.set_tool(ToolMode.SELECT)
                 return
 
+            # Text creation mode (single click to place)
+            if self._tool == ToolMode.TEXT:
+                scene_pos = self.mapToScene(event.pos())
+                txt = TextItem(scene_pos)
+                if self._has_undo_stack():
+                    cmd = AddItemCommand(self, txt, 'texts')
+                    self._undo_stack.push(cmd)
+                else:
+                    self.add_text(txt)
+                    self.modified.emit()
+                self._scene.clearSelection()
+                txt.setSelected(True)
+                self.selection_changed.emit()
+                self.set_tool(ToolMode.SELECT)
+                return
+
             # Select mode — check if clicking on an item body for dragging
             if self._tool == ToolMode.SELECT:
                 scene_pos = self.mapToScene(event.pos())
@@ -563,7 +592,7 @@ class FBDCanvas(QGraphicsView):
                         self._scene.clearSelection()
                         item.setSelected(True)
                     return
-                if isinstance(item, (VectorItem, PointItem, DirectionItem, LineItem, RectangleItem, PolygonItem, EllipseItem)):
+                if isinstance(item, (VectorItem, PointItem, DirectionItem, LineItem, RectangleItem, PolygonItem, EllipseItem, TextItem)):
                     self._dragging_item = item
                     self._drag_anchor = item.drag_anchor()
                     self._drag_last = scene_pos
@@ -863,7 +892,7 @@ class FBDCanvas(QGraphicsView):
     def _find_canvas_item(self, graphics_item):
         """Find the VectorItem/PointItem/DirectionItem/LineItem/MomentItem that owns a graphics item."""
         if isinstance(graphics_item, (VectorItem, PointItem, DirectionItem, LineItem,
-                                      MomentItem, RectangleItem, PolygonItem, EllipseItem)):
+                                      MomentItem, RectangleItem, PolygonItem, EllipseItem, TextItem)):
             return graphics_item
         # BaseLabel / BaseControlPoint / Moment handles all use _parent_item
         parent = getattr(graphics_item, '_parent_item', None)
@@ -963,9 +992,38 @@ class FBDCanvas(QGraphicsView):
                     self.selection_changed.emit()
                 return
 
+    def _move_selected_by(self, dx: float, dy: float):
+        """Move the selected item by (dx, dy) with undo support."""
+        for type_key, cls in self._type_classes.items():
+            item = self._get_selected_item(cls)
+            if item:
+                delta = QPointF(dx, dy)
+                old_anchor = item.drag_anchor()
+                new_anchor = old_anchor + delta
+                if self._has_undo_stack():
+                    cmd = MoveItemCommand(item, old_anchor, new_anchor)
+                    self._undo_stack.push(cmd)
+                else:
+                    item.move_by(delta)
+                    self.modified.emit()
+                return
+
     def keyPressEvent(self, event: QKeyEvent):
         if event.key() == Qt.Key.Key_Backspace:
             self.delete_selected()
+            return
+
+        # Arrow keys: move selected item (Shift = 10px, default = 1px)
+        arrow_keys = {
+            Qt.Key.Key_Left:  (-1, 0),
+            Qt.Key.Key_Right: (1, 0),
+            Qt.Key.Key_Up:    (0, -1),
+            Qt.Key.Key_Down:  (0, 1),
+        }
+        if event.key() in arrow_keys:
+            dx, dy = arrow_keys[event.key()]
+            step = 10 if event.modifiers() & Qt.KeyboardModifier.ShiftModifier else 1
+            self._move_selected_by(dx * step, dy * step)
             return
 
         if event.matches(QKeySequence.StandardKey.Copy):
@@ -1004,6 +1062,7 @@ class FBDCanvas(QGraphicsView):
         'rectangles': RectangleItem.from_dict,
         'polygons': PolygonItem.from_dict,
         'ellipses': EllipseItem.from_dict,
+        'texts': TextItem.from_dict,
     }
 
     @staticmethod

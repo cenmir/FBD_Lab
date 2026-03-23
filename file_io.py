@@ -16,6 +16,7 @@ from moment_item import MomentItem
 from rectangle_item import RectangleItem
 from polygon_item import PolygonItem
 from ellipse_item import EllipseItem
+from text_item import TextItem
 
 # --- Current format ---
 MAGIC_HEADER_V7_JSON = b"FBDB_v7\x00\x00\x00"  # 10 bytes, hybrid binary+JSON
@@ -177,6 +178,7 @@ def _save_v7(canvas: FBDCanvas, file_path: Path):
             "rectangles": canvas.get_rectangles_data(),
             "polygons": canvas.get_polygons_data(),
             "ellipses": canvas.get_ellipses_data(),
+            "texts": canvas.get_texts_data(),
             "metadata": canvas.metadata.to_dict(),
             "layer_visibility": layer_vis,
         }
@@ -235,6 +237,8 @@ def _load_v7(canvas: FBDCanvas, file_path: Path):
             canvas.add_polygon(PolygonItem.from_dict(poly_data))
         for ell_data in data.get("ellipses", []):
             canvas.add_ellipse(EllipseItem.from_dict(ell_data))
+        for txt_data in data.get("texts", []):
+            canvas.add_text(TextItem.from_dict(txt_data))
 
         meta_data = data.get("metadata")
         if meta_data:
@@ -252,6 +256,7 @@ def _load_v7(canvas: FBDCanvas, file_path: Path):
             canvas.set_rectangles_visible(layer_vis.get("rectangles", True))
             canvas.set_polygons_visible(layer_vis.get("polygons", True))
             canvas.set_ellipses_visible(layer_vis.get("ellipses", True))
+            canvas.set_texts_visible(layer_vis.get("texts", True))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -270,6 +275,7 @@ def _load_legacy_json(canvas: FBDCanvas, file_path: Path):
     canvas.clear_rectangles()
     canvas.clear_polygons()
     canvas.clear_ellipses()
+    canvas.clear_texts()
 
     bg_data = data.get("background_image")
     if bg_data:
@@ -293,6 +299,8 @@ def _load_legacy_json(canvas: FBDCanvas, file_path: Path):
         canvas.add_polygon(PolygonItem.from_dict(poly_data))
     for ell_data in data.get("ellipses", []):
         canvas.add_ellipse(EllipseItem.from_dict(ell_data))
+    for txt_data in data.get("texts", []):
+        canvas.add_text(TextItem.from_dict(txt_data))
 
     meta_data = data.get("metadata")
     if meta_data:
@@ -334,6 +342,7 @@ def _load_legacy_binary(canvas: FBDCanvas, file_path: Path):
         canvas.clear_rectangles()
         canvas.clear_polygons()
         canvas.clear_ellipses()
+        canvas.clear_texts()
 
         # Background image
         img_len = struct.unpack("<I", _read_exact(f, 4))[0]

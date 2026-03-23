@@ -345,6 +345,7 @@ def main():
         window.rectanglesLayerCheckBox.setChecked(c._visibility.get('rectangles', True))
         window.polygonsLayerCheckBox.setChecked(c._visibility.get('polygons', True))
         window.ellipsesLayerCheckBox.setChecked(c._visibility.get('ellipses', True))
+        window.textsLayerCheckBox.setChecked(c._visibility.get('texts', True))
 
     def _do_open(file_path):
         """Load a file into the canvas, resetting undo and dirty state."""
@@ -690,6 +691,12 @@ def main():
         else:
             window.canvas.set_tool(ToolMode.SELECT)
 
+    def on_text_toggle(checked):
+        if checked:
+            window.canvas.set_tool(ToolMode.TEXT)
+        else:
+            window.canvas.set_tool(ToolMode.SELECT)
+
     window.vectorToolButton.toggled.connect(on_vector_toggle)
     window.pointToolButton.toggled.connect(on_point_toggle)
     window.directionToolButton.toggled.connect(on_direction_toggle)
@@ -698,6 +705,7 @@ def main():
     window.rectangleToolButton.toggled.connect(on_rectangle_toggle)
     window.polygonToolButton.toggled.connect(on_polygon_toggle)
     window.ellipseToolButton.toggled.connect(on_ellipse_toggle)
+    window.textToolButton.toggled.connect(on_text_toggle)
 
     def on_tool_changed(mode):
         _all_tool_buttons = [
@@ -705,6 +713,7 @@ def main():
             window.directionToolButton, window.lineToolButton,
             window.momentToolButton, window.rectangleToolButton,
             window.polygonToolButton, window.ellipseToolButton,
+            window.textToolButton,
         ]
         _tool_mode_map = {
             ToolMode.VECTOR: window.vectorToolButton,
@@ -715,6 +724,7 @@ def main():
             ToolMode.RECTANGLE: window.rectangleToolButton,
             ToolMode.POLYGON: window.polygonToolButton,
             ToolMode.ELLIPSE: window.ellipseToolButton,
+            ToolMode.TEXT: window.textToolButton,
         }
         for btn in _all_tool_buttons:
             btn.blockSignals(True)
@@ -730,6 +740,7 @@ def main():
             ToolMode.RECTANGLE: "Rectangle creation mode — click and drag to draw",
             ToolMode.POLYGON: "Polygon creation mode — click to add vertices, double-click to finish",
             ToolMode.ELLIPSE: "Ellipse creation mode — click and drag (CTRL = circle)",
+            ToolMode.TEXT: "Text creation mode — click to place text",
         }
         window.statusbar.showMessage(status_msgs.get(mode, "Ready"))
 
@@ -769,6 +780,10 @@ def main():
     shortcut_e = QShortcut(QKeySequence("E"), window)
     shortcut_e.activated.connect(lambda: window.ellipseToolButton.toggle())
 
+    # "T" shortcut to toggle text mode
+    shortcut_t = QShortcut(QKeySequence("T"), window)
+    shortcut_t.activated.connect(lambda: window.textToolButton.toggle())
+
     # Delete action
     window.actionDelete.triggered.connect(window.canvas.delete_selected)
 
@@ -802,6 +817,13 @@ def main():
 
     def _set_button_color(btn, color: QColor):
         btn.setStyleSheet(f"background-color: {color.name()}; border: 1px solid #888;")
+
+    # Label background checkbox (common to all items with labels)
+    _label_bg_label = QLabel("Label BG:")
+    _label_bg_check = QCheckBox()
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _label_bg_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _label_bg_check)
 
     # --- Item color/opacity widgets (for vector, direction, point, moment) ---
     _item_color_divider = QFrame()
@@ -987,9 +1009,31 @@ def main():
     _direction_only_widgets = [
         window.showArrowheadLabel, window.showArrowheadCheckBox,
     ]
+    # Line arrow/dashed widgets (added programmatically)
+    _line_arrow_tail_label = QLabel("Arrow Tail:")
+    _line_arrow_tail_check = QCheckBox()
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _line_arrow_tail_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _line_arrow_tail_check)
+
+    _line_arrow_head_label = QLabel("Arrow Head:")
+    _line_arrow_head_check = QCheckBox()
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _line_arrow_head_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _line_arrow_head_check)
+
+    _line_dashed_label = QLabel("Dashed:")
+    _line_dashed_check = QCheckBox()
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _line_dashed_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _line_dashed_check)
+
     _line_only_widgets = [
         window.bodyThicknessLabel, window.bodyThicknessSpinBox,
         window.outlineThicknessLabel, window.outlineThicknessSpinBox,
+        _line_arrow_tail_label, _line_arrow_tail_check,
+        _line_arrow_head_label, _line_arrow_head_check,
+        _line_dashed_label, _line_dashed_check,
     ]
     _reverse_moment_label = QLabel("Reverse:")
     _reverse_moment_check = QCheckBox()
@@ -1017,10 +1061,11 @@ def main():
             rect = window.canvas.get_selected_rectangle()
             polygon = window.canvas.get_selected_polygon()
             ellipse = window.canvas.get_selected_ellipse()
+            text = window.canvas.get_selected_text()
         except RuntimeError:
             return  # scene already destroyed during shutdown
 
-        if vec is None and point is None and direction is None and line is None and moment is None and rect is None and polygon is None and ellipse is None:
+        if vec is None and point is None and direction is None and line is None and moment is None and rect is None and polygon is None and ellipse is None and text is None:
             window.propertiesGroupBox.setVisible(False)
             return
 
@@ -1028,7 +1073,7 @@ def main():
         _updating_panel = True
 
         # Hide all conditional widget groups first
-        for w in _start_end_widgets + _magnitude_widgets + _point_only_widgets + _direction_only_widgets + _line_only_widgets + _moment_only_widgets + _item_color_widgets + _shape_style_widgets + _rect_only_widgets:
+        for w in _start_end_widgets + _magnitude_widgets + _point_only_widgets + _direction_only_widgets + _line_only_widgets + _moment_only_widgets + _item_color_widgets + _shape_style_widgets + _rect_only_widgets + [_label_bg_label, _label_bg_check]:
             w.setVisible(False)
 
         if vec is not None:
@@ -1084,6 +1129,9 @@ def main():
             window.endYSpinBox.setValue(line.head.y())
             window.bodyThicknessSpinBox.setValue(line.body_thickness)
             window.outlineThicknessSpinBox.setValue(line.outline_thickness)
+            _line_arrow_tail_check.setChecked(line.show_arrow_tail)
+            _line_arrow_head_check.setChecked(line.show_arrow_head)
+            _line_dashed_check.setChecked(line.dashed)
             window.showLabelCheckBox.setChecked(line.label_visible)
             window.labelTextLineEdit.setText(line.label_text)
             window.fontSizeSpinBox.setValue(line.font_size)
@@ -1106,8 +1154,8 @@ def main():
             window.boldButton.setChecked(moment.label_bold)
             window.italicButton.setChecked(moment.label_italic)
 
-        # Item color/opacity (for vector, direction, point, moment)
-        color_item = vec or direction or point or moment
+        # Item color/opacity (for vector, direction, point, moment, text)
+        color_item = vec or direction or point or moment or text
         if color_item is not None:
             for w in _item_color_widgets:
                 w.setVisible(True)
@@ -1152,6 +1200,21 @@ def main():
             _rect_angle_spin.setVisible(True)
             _rect_angle_spin.setValue(ellipse.angle_ccw)
 
+        # Text item (label controls are common, just sync values)
+        if text is not None:
+            window.showLabelCheckBox.setChecked(text.label_visible)
+            window.labelTextLineEdit.setText(text.label_text)
+            window.fontSizeSpinBox.setValue(text.font_size)
+            window.boldButton.setChecked(text.label_bold)
+            window.italicButton.setChecked(text.label_italic)
+
+        # Label background (common to all items)
+        any_item = _get_selected_item()
+        if any_item is not None:
+            _label_bg_label.setVisible(True)
+            _label_bg_check.setVisible(True)
+            _label_bg_check.setChecked(any_item.label_background)
+
         _updating_panel = False
 
     window.propertiesGroupBox.setVisible(False)
@@ -1162,7 +1225,7 @@ def main():
     # --- Properties panel write-back ---
 
     def _get_selected_item():
-        """Return the selected vector, direction, line, point, moment, rectangle, polygon, or ellipse."""
+        """Return any selected item."""
         return (window.canvas.get_selected_vector()
                 or window.canvas.get_selected_direction()
                 or window.canvas.get_selected_line()
@@ -1170,7 +1233,8 @@ def main():
                 or window.canvas.get_selected_moment()
                 or window.canvas.get_selected_rectangle()
                 or window.canvas.get_selected_polygon()
-                or window.canvas.get_selected_ellipse())
+                or window.canvas.get_selected_ellipse()
+                or window.canvas.get_selected_text())
 
     def _get_selected_line_item():
         """Return the selected vector, direction, or line (items with tail/head)."""
@@ -1555,7 +1619,8 @@ def main():
         return (window.canvas.get_selected_vector()
                 or window.canvas.get_selected_direction()
                 or window.canvas.get_selected_point()
-                or window.canvas.get_selected_moment())
+                or window.canvas.get_selected_moment()
+                or window.canvas.get_selected_text())
 
     def on_item_color_clicked():
         if _updating_panel:
@@ -1701,6 +1766,41 @@ def main():
     window.showArrowheadCheckBox.toggled.connect(on_show_arrowhead_toggled)
     window.bodyThicknessSpinBox.valueChanged.connect(on_body_thickness_changed)
     window.outlineThicknessSpinBox.valueChanged.connect(on_outline_thickness_changed)
+
+    def _line_bool_handler(prop_name, description):
+        def handler(checked):
+            if _updating_panel:
+                return
+            line = window.canvas.get_selected_line()
+            if line is None:
+                return
+            if checked == getattr(line, prop_name):
+                return
+            old_val = getattr(line, prop_name)
+            setattr(line, prop_name, old_val)
+            cmd = ChangeShapePropertyCommand(line, prop_name, old_val, checked, description)
+            undo_stack.push(cmd)
+        return handler
+
+    _line_arrow_tail_check.toggled.connect(_line_bool_handler("show_arrow_tail", "Toggle Tail Arrow"))
+    _line_arrow_head_check.toggled.connect(_line_bool_handler("show_arrow_head", "Toggle Head Arrow"))
+    _line_dashed_check.toggled.connect(_line_bool_handler("dashed", "Toggle Dashed"))
+
+    def on_label_bg_toggled(checked):
+        if _updating_panel:
+            return
+        item = _get_selected_item()
+        if item is None:
+            return
+        if checked == item.label_background:
+            return
+        old_val = item.label_background
+        item.label_background = old_val
+        cmd = ChangeShapePropertyCommand(item, "label_background", old_val, checked, "Toggle Label Background")
+        undo_stack.push(cmd)
+
+    _label_bg_check.toggled.connect(on_label_bg_toggled)
+
     window.centerXSpinBox.valueChanged.connect(on_center_x_changed)
     window.centerYSpinBox.valueChanged.connect(on_center_y_changed)
     window.radiusSpinBox.valueChanged.connect(on_radius_changed)
@@ -1732,6 +1832,7 @@ def main():
     window.rectanglesLayerCheckBox.toggled.connect(window.canvas.set_rectangles_visible)
     window.polygonsLayerCheckBox.toggled.connect(window.canvas.set_polygons_visible)
     window.ellipsesLayerCheckBox.toggled.connect(window.canvas.set_ellipses_visible)
+    window.textsLayerCheckBox.toggled.connect(window.canvas.set_texts_visible)
 
     # Sync panel after undo/redo and modifications (e.g. drag) so it reflects current state
     undo_stack.indexChanged.connect(lambda _: sync_panel())

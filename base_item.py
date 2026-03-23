@@ -178,6 +178,7 @@ class BaseLabel(QGraphicsTextItem):
         self._parent_item = parent_item
         self._drag_old_offset: QPointF | None = None
         self._updating = False
+        self._has_background = False
 
         self.setDefaultTextColor(LABEL_COLOR)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
@@ -188,8 +189,15 @@ class BaseLabel(QGraphicsTextItem):
     def set_font_size(self, size: int):
         self.setFont(get_cm_font(size))
 
+    def set_background(self, enabled: bool):
+        self._has_background = enabled
+        self.update_display()
+
     def update_display(self):
         html = self._parent_item.get_label_html()
+        if self._has_background:
+            # Wrap in a span with white background
+            html = f'<span style="background-color: white; padding: 2px;">{html}</span>'
         self.setHtml(html)
 
     def update_color(self, selected: bool):
@@ -264,6 +272,7 @@ class LabelPropertiesMixin:
         self._font_size = DEFAULT_FONT_SIZE
         self._label_bold = True
         self._label_italic = True
+        self._label_background = False
         self._z_order = 0
         self.on_modified = None
         self.on_push_undo = None
@@ -346,6 +355,15 @@ class LabelPropertiesMixin:
         self._label.update_display()
 
     @property
+    def label_background(self) -> bool:
+        return self._label_background
+
+    @label_background.setter
+    def label_background(self, value: bool):
+        self._label_background = value
+        self._label.set_background(value)
+
+    @property
     def item_color(self) -> QColor:
         return QColor(self._item_color)
 
@@ -415,6 +433,7 @@ class LabelPropertiesMixin:
             "font_size": self._font_size,
             "label_bold": self._label_bold,
             "label_italic": self._label_italic,
+            "label_background": self._label_background,
             "z_order": self._z_order,
         }
         # Only save color/opacity if non-default
@@ -433,6 +452,9 @@ class LabelPropertiesMixin:
         self._font_size = data.get("font_size", DEFAULT_FONT_SIZE)
         self._label_bold = data.get("label_bold", True)
         self._label_italic = data.get("label_italic", True)
+        self._label_background = data.get("label_background", False)
+        if self._label_background:
+            self._label.set_background(True)
         if "item_color" in data:
             self._item_color = QColor(data["item_color"])
         self._item_opacity = data.get("item_opacity", 255)
