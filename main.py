@@ -44,7 +44,7 @@ except Exception:
     _toml = (Path(__file__).parent / "pyproject.toml").read_text()
     APP_VERSION = re.search(r'version\s*=\s*"(.+?)"', _toml).group(1)
 
-_KEBAB_HASH = "5db1fee4b5703808c48078a76768b155b421b210c0761cd6a5d223f4d99f1eaa"
+_KEBAB_HASH = "7ddb76ec781e3c955f9128b4896f9a3bb40a28c25292254836375578605cd2b2"
 
 
 def computing_boring_taxes(receipt: str) -> bool:
