@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1200</width>
-    <height>800</height>
+    <width>1300</width>
+    <height>1000</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -114,6 +114,26 @@
              </property>
             </widget>
            </item>
+           <item row="2" column="1">
+            <widget class="QPushButton" name="rectangleToolButton">
+             <property name="text">
+              <string>Create Rectangle (R)</string>
+             </property>
+             <property name="checkable">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="3" column="0">
+            <widget class="QPushButton" name="polygonToolButton">
+             <property name="text">
+              <string>Create Polygon (G)</string>
+             </property>
+             <property name="checkable">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
           </layout>
          </widget>
         </item>
@@ -177,6 +197,26 @@
             <widget class="QCheckBox" name="momentsLayerCheckBox">
              <property name="text">
               <string>Moments</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="rectanglesLayerCheckBox">
+             <property name="text">
+              <string>Rectangles</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="polygonsLayerCheckBox">
+             <property name="text">
+              <string>Polygons</string>
              </property>
              <property name="checked">
               <bool>true</bool>

@@ -44,12 +44,19 @@ DEFAULT_MAGNITUDE = ""
 class VectorItem(LabelPropertiesMixin, QGraphicsPathItem):
     """A straight vector from tail to head with an arrowhead."""
 
+    _DEFAULT_ITEM_COLOR = VECTOR_COLOR
+
+    def _default_item_color(self) -> QColor:
+        return QColor(VECTOR_COLOR)
+
     def __init__(self, tail: QPointF, head: QPointF, parent=None):
         super().__init__(parent)
         self._tail = QPointF(tail)
         self._head = QPointF(head)
         self._magnitude = DEFAULT_MAGNITUDE
         self._show_magnitude = False
+        self._item_color = QColor(VECTOR_COLOR)
+        self._item_opacity = 255
 
         self._rebuild_pens()
         self.setPen(self._pen_normal)
@@ -149,13 +156,26 @@ class VectorItem(LabelPropertiesMixin, QGraphicsPathItem):
 
     def _rebuild_pens(self):
         s = vector_settings
-        self._pen_normal = QPen(VECTOR_COLOR, s.arrow_thickness)
+        color = self._get_item_color_with_opacity()
+        self._pen_normal = QPen(color, s.arrow_thickness)
         self._pen_selected = QPen(SELECTED_COLOR, s.arrow_thickness)
-        self._shaft_pen_normal = QPen(VECTOR_COLOR, s.shaft_thickness)
+        self._shaft_pen_normal = QPen(color, s.shaft_thickness)
         self._shaft_pen_normal.setCapStyle(Qt.PenCapStyle.RoundCap)
         self._shaft_pen_selected = QPen(SELECTED_COLOR, s.shaft_thickness)
         self._shaft_pen_selected.setCapStyle(Qt.PenCapStyle.RoundCap)
         self.setPen(self._pen_normal)
+
+    @LabelPropertiesMixin.item_color.setter
+    def item_color(self, value: QColor):
+        self._item_color = QColor(value)
+        self._rebuild_pens()
+        self.update()
+
+    @LabelPropertiesMixin.item_opacity.setter
+    def item_opacity(self, value: int):
+        self._item_opacity = max(0, min(255, value))
+        self._rebuild_pens()
+        self.update()
 
     def refresh_style(self):
         """Rebuild pens, handle sizes, and path from current vector_settings."""
@@ -219,7 +239,7 @@ class VectorItem(LabelPropertiesMixin, QGraphicsPathItem):
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None):
         is_sel = self.isSelected()
-        color = SELECTED_COLOR if is_sel else VECTOR_COLOR
+        color = SELECTED_COLOR if is_sel else self._get_item_color_with_opacity()
 
         self._tail_handle.setVisible(is_sel)
         self._head_handle.setVisible(is_sel)

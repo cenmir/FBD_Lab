@@ -9,10 +9,11 @@ from functools import partial
 from importlib.metadata import version as pkg_version
 from pathlib import Path
 
-from PyQt6.QtCore import QPointF, QSettings
+from PyQt6.QtCore import QPointF, QSettings, QEvent, Qt
 from PyQt6.QtWidgets import (
     QApplication, QFileDialog, QMessageBox, QMenu,
     QToolBar, QSpinBox, QLabel, QWidget, QHBoxLayout, QComboBox,
+    QColorDialog, QPushButton, QFrame, QCheckBox, QDoubleSpinBox, QLineEdit,
 )
 from PyQt6.QtGui import (
     QPalette, QColor, QKeySequence, QShortcut, QAction, QPixmap, QIcon,
@@ -33,6 +34,7 @@ from commands import (
     ResizeDirectionCommand, ChangeShowArrowheadCommand,
     ResizeLineCommand, ChangeBodyThicknessCommand, ChangeOutlineThicknessCommand,
     MoveMomentCommand, ChangeRadiusCommand, ChangeAnglesCommand,
+    ChangeShapePropertyCommand, ChangeRotationCommand,
 )
 from file_io import save_fbd, load_fbd
 
@@ -47,8 +49,61 @@ except Exception:
 _KEBAB_HASH = "7ddb76ec781e3c955f9128b4896f9a3bb40a28c25292254836375578605cd2b2"
 
 
+class SpinDragFilter(QWidget):
+    """Event filter that adds click-drag-to-scrub on any QSpinBox / QDoubleSpinBox.
+
+    Also disables keyboard tracking so valueChanged only fires on Enter / focus-out.
+    Install with: spin.installEventFilter(SpinDragFilter(spin))
+    """
+
+    DRAG_THRESHOLD = 3  # pixels before drag starts
+
+    def __init__(self, spinbox, sensitivity: float = 1.0, parent=None):
+        super().__init__(parent or spinbox)
+        self._spin = spinbox
+        self._sensitivity = sensitivity
+        self._dragging = False
+        self._drag_start_y = 0
+        self._drag_start_value = 0
+        self._accumulated = 0.0
+        spinbox.setKeyboardTracking(False)
+        spinbox.setCursor(Qt.CursorShape.SizeVerCursor)
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+            self._drag_start_y = event.globalPosition().y()
+            self._drag_start_value = self._spin.value()
+            self._accumulated = 0.0
+            self._dragging = False
+            return False
+
+        if event.type() == QEvent.Type.MouseMove and event.buttons() & Qt.MouseButton.LeftButton:
+            dy = self._drag_start_y - event.globalPosition().y()
+            if not self._dragging and abs(dy) >= self.DRAG_THRESHOLD:
+                self._dragging = True
+                self._drag_start_y = event.globalPosition().y()
+                dy = 0
+            if self._dragging:
+                step = self._spin.singleStep()
+                self._accumulated += dy * self._sensitivity * 0.1
+                self._drag_start_y = event.globalPosition().y()
+                ticks = int(self._accumulated)
+                if ticks != 0:
+                    self._accumulated -= ticks
+                    new_val = self._spin.value() + ticks * step
+                    new_val = max(self._spin.minimum(), min(self._spin.maximum(), new_val))
+                    self._spin.setValue(new_val)
+                return True
+
+        if event.type() == QEvent.Type.MouseButtonRelease and self._dragging:
+            self._dragging = False
+            return True
+
+        return False
+
+
 def _register_file_types():
-    """Register .fbd and .fbdb file associations in the Windows registry."""
+    """Register .fbdb file association in the Windows registry."""
     if sys.platform != "win32":
         QMessageBox.information(None, "Not supported", "File registration is only supported on Windows.")
         return
@@ -67,7 +122,7 @@ def _register_file_types():
     icon = exe + ",0"
 
     try:
-        for ext in (".fbd", ".fbdb"):
+        for ext in (".fbdb",):
             prog_id = f"FBDLab{ext.replace('.', '').upper()}"
 
             # Register ProgID
@@ -88,7 +143,7 @@ def _register_file_types():
 
         QMessageBox.information(
             None, "File Types Registered",
-            f"Registered .fbd and .fbdb to open with:\n{exe}\n\n"
+            f"Registered .fbdb to open with:\n{exe}\n\n"
             "You can now double-click FBD files to open them."
         )
     except OSError as e:
@@ -313,26 +368,14 @@ def main():
 
     def save_as():
         nonlocal current_file
-        if kebabsås:
-            file_path, selected_filter = QFileDialog.getSaveFileName(
-                window, "Save FBD File", "",
-                "FBD Files (*.fbd);;Binary FBD (*.fbdb);;All Files (*)"
-            )
-            if not file_path:
-                return
-            if selected_filter == "Binary FBD (*.fbdb)" and not file_path.endswith(".fbdb"):
-                file_path += ".fbdb"
-            elif not file_path.endswith((".fbd", ".fbdb")):
-                file_path += ".fbd"
-        else:
-            file_path, _ = QFileDialog.getSaveFileName(
-                window, "Save FBD File", "",
-                "Binary FBD (*.fbdb)"
-            )
-            if not file_path:
-                return
-            if not file_path.endswith(".fbdb"):
-                file_path += ".fbdb"
+        file_path, _ = QFileDialog.getSaveFileName(
+            window, "Save FBD File", "",
+            "FBD Files (*.fbdb);;All Files (*)"
+        )
+        if not file_path:
+            return
+        if not file_path.endswith(".fbdb"):
+            file_path += ".fbdb"
 
         _update_metadata_for_save()
         save_fbd(window.canvas, file_path)
@@ -352,10 +395,7 @@ def main():
     def open_file():
         if not check_unsaved_changes():
             return
-        if kebabsås:
-            filters = "All FBD Files (*.fbd *.fbdb);;FBD Files (*.fbd);;Binary FBD (*.fbdb);;All Files (*)"
-        else:
-            filters = "Binary FBD (*.fbdb);;All Files (*)"
+        filters = "FBD Files (*.fbdb);;Legacy FBD (*.fbd);;All Files (*)"
         file_path, _ = QFileDialog.getOpenFileName(
             window, "Open FBD File", "", filters
         )
@@ -391,7 +431,7 @@ def main():
     window.actionExportPNG.triggered.connect(export_png)
 
     if sys.platform == "win32":
-        register_action = QAction("Register File Types (.fbd, .fbdb)", window)
+        register_action = QAction("Register File Type (.fbdb)", window)
         register_action.triggered.connect(_register_file_types)
         window.menuFile.addSeparator()
         window.menuFile.addAction(register_action)
@@ -618,40 +658,57 @@ def main():
         else:
             window.canvas.set_tool(ToolMode.SELECT)
 
+    def on_rectangle_toggle(checked):
+        if checked:
+            window.canvas.set_tool(ToolMode.RECTANGLE)
+        else:
+            window.canvas.set_tool(ToolMode.SELECT)
+
+    def on_polygon_toggle(checked):
+        if checked:
+            window.canvas.set_tool(ToolMode.POLYGON)
+        else:
+            window.canvas.set_tool(ToolMode.SELECT)
+
     window.vectorToolButton.toggled.connect(on_vector_toggle)
     window.pointToolButton.toggled.connect(on_point_toggle)
     window.directionToolButton.toggled.connect(on_direction_toggle)
     window.lineToolButton.toggled.connect(on_line_toggle)
     window.momentToolButton.toggled.connect(on_moment_toggle)
+    window.rectangleToolButton.toggled.connect(on_rectangle_toggle)
+    window.polygonToolButton.toggled.connect(on_polygon_toggle)
 
     def on_tool_changed(mode):
-        window.vectorToolButton.blockSignals(True)
-        window.pointToolButton.blockSignals(True)
-        window.directionToolButton.blockSignals(True)
-        window.lineToolButton.blockSignals(True)
-        window.momentToolButton.blockSignals(True)
-        window.vectorToolButton.setChecked(mode == ToolMode.VECTOR)
-        window.pointToolButton.setChecked(mode == ToolMode.POINT)
-        window.directionToolButton.setChecked(mode == ToolMode.DIRECTION)
-        window.lineToolButton.setChecked(mode == ToolMode.LINE)
-        window.momentToolButton.setChecked(mode == ToolMode.MOMENT)
-        window.vectorToolButton.blockSignals(False)
-        window.pointToolButton.blockSignals(False)
-        window.directionToolButton.blockSignals(False)
-        window.lineToolButton.blockSignals(False)
-        window.momentToolButton.blockSignals(False)
-        if mode == ToolMode.VECTOR:
-            window.statusbar.showMessage("Vector creation mode — click and drag to draw")
-        elif mode == ToolMode.POINT:
-            window.statusbar.showMessage("Point creation mode — click to place a point")
-        elif mode == ToolMode.DIRECTION:
-            window.statusbar.showMessage("Direction creation mode — click and drag to draw")
-        elif mode == ToolMode.LINE:
-            window.statusbar.showMessage("Line creation mode — click and drag to draw")
-        elif mode == ToolMode.MOMENT:
-            window.statusbar.showMessage("Moment creation mode — click and drag to set center and radius")
-        else:
-            window.statusbar.showMessage("Ready")
+        _all_tool_buttons = [
+            window.vectorToolButton, window.pointToolButton,
+            window.directionToolButton, window.lineToolButton,
+            window.momentToolButton, window.rectangleToolButton,
+            window.polygonToolButton,
+        ]
+        _tool_mode_map = {
+            ToolMode.VECTOR: window.vectorToolButton,
+            ToolMode.POINT: window.pointToolButton,
+            ToolMode.DIRECTION: window.directionToolButton,
+            ToolMode.LINE: window.lineToolButton,
+            ToolMode.MOMENT: window.momentToolButton,
+            ToolMode.RECTANGLE: window.rectangleToolButton,
+            ToolMode.POLYGON: window.polygonToolButton,
+        }
+        for btn in _all_tool_buttons:
+            btn.blockSignals(True)
+            btn.setChecked(btn is _tool_mode_map.get(mode))
+            btn.blockSignals(False)
+
+        status_msgs = {
+            ToolMode.VECTOR: "Vector creation mode — click and drag to draw",
+            ToolMode.POINT: "Point creation mode — click to place a point",
+            ToolMode.DIRECTION: "Direction creation mode — click and drag to draw",
+            ToolMode.LINE: "Line creation mode — click and drag to draw",
+            ToolMode.MOMENT: "Moment creation mode — click and drag to set center and radius",
+            ToolMode.RECTANGLE: "Rectangle creation mode — click and drag to draw",
+            ToolMode.POLYGON: "Polygon creation mode — click to add vertices, double-click to finish",
+        }
+        window.statusbar.showMessage(status_msgs.get(mode, "Ready"))
 
     window.canvas.tool_changed.connect(on_tool_changed)
     window.statusbar.show()
@@ -677,11 +734,205 @@ def main():
     shortcut_m = QShortcut(QKeySequence("M"), window)
     shortcut_m.activated.connect(lambda: window.momentToolButton.toggle())
 
+    # "R" shortcut to toggle rectangle mode
+    shortcut_r = QShortcut(QKeySequence("R"), window)
+    shortcut_r.activated.connect(lambda: window.rectangleToolButton.toggle())
+
+    # "G" shortcut to toggle polygon mode
+    shortcut_g = QShortcut(QKeySequence("G"), window)
+    shortcut_g.activated.connect(lambda: window.polygonToolButton.toggle())
+
     # Delete action
     window.actionDelete.triggered.connect(window.canvas.delete_selected)
 
+    # --- Enable drag-to-scrub on all property panel spin boxes ---
+    for _sb in [window.startXSpinBox, window.startYSpinBox,
+                window.endXSpinBox, window.endYSpinBox,
+                window.posXSpinBox, window.posYSpinBox,
+                window.fontSizeSpinBox,
+                window.bodyThicknessSpinBox, window.outlineThicknessSpinBox,
+                window.centerXSpinBox, window.centerYSpinBox,
+                window.radiusSpinBox, window.startAngleSpinBox, window.spanAngleSpinBox]:
+        _sb.installEventFilter(SpinDragFilter(_sb))
+
+    # --- Shape style widgets (added programmatically) ---
+    _form = window.propertiesLayout
+
+    def _make_color_button(name):
+        btn = QPushButton()
+        btn.setObjectName(name)
+        btn.setFixedSize(60, 24)
+        btn.setCursor(btn.cursor())
+        return btn
+
+    def _set_button_color(btn, color: QColor):
+        btn.setStyleSheet(f"background-color: {color.name()}; border: 1px solid #888;")
+
+    # --- Item color/opacity widgets (for vector, direction, point, moment) ---
+    _item_color_divider = QFrame()
+    _item_color_divider.setFrameShape(QFrame.Shape.HLine)
+    _item_color_divider.setFrameShadow(QFrame.Shadow.Sunken)
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.SpanningRole, _item_color_divider)
+
+    _item_color_label = QLabel("Color:")
+    _item_color_btn = _make_color_button("itemColorButton")
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _item_color_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _item_color_btn)
+
+    _item_opacity_label = QLabel("Opacity:")
+    _item_opacity_spin = QSpinBox()
+    _item_opacity_spin.setRange(0, 255)
+    _item_opacity_spin.setValue(255)
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _item_opacity_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _item_opacity_spin)
+
+    # Divider (for shape-specific style controls)
+    _shape_divider = QFrame()
+    _shape_divider.setFrameShape(QFrame.Shape.HLine)
+    _shape_divider.setFrameShadow(QFrame.Shadow.Sunken)
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.SpanningRole, _shape_divider)
+
+    # Fill Color
+    _fill_color_label = QLabel("Fill Color:")
+    _fill_color_btn = _make_color_button("fillColorButton")
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _fill_color_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _fill_color_btn)
+
+    # Fill Opacity
+    _fill_opacity_label = QLabel("Fill Opacity:")
+    _fill_opacity_spin = QSpinBox()
+    _fill_opacity_spin.setRange(0, 255)
+    _fill_opacity_spin.setValue(255)
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _fill_opacity_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _fill_opacity_spin)
+
+    # Edge Color
+    _edge_color_label = QLabel("Edge Color:")
+    _edge_color_btn = _make_color_button("edgeColorButton")
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _edge_color_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _edge_color_btn)
+
+    # Edge Opacity
+    _edge_opacity_label = QLabel("Edge Opacity:")
+    _edge_opacity_spin = QSpinBox()
+    _edge_opacity_spin.setRange(0, 255)
+    _edge_opacity_spin.setValue(255)
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _edge_opacity_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _edge_opacity_spin)
+
+    # Edge Thickness
+    _edge_thickness_label = QLabel("Edge Thickness:")
+    _edge_thickness_spin = QSpinBox()
+    _edge_thickness_spin.setRange(0, 20)
+    _edge_thickness_spin.setValue(2)
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _edge_thickness_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _edge_thickness_spin)
+
+    # --- Rectangle-only widgets ---
+
+    # Rotation Angle (counter-clockwise)
+    _rect_angle_label = QLabel("Angle (CCW):")
+    _rect_angle_spin = QDoubleSpinBox()
+    _rect_angle_spin.setRange(-360, 360)
+    _rect_angle_spin.setDecimals(1)
+    _rect_angle_spin.setSuffix("\u00b0")
+    _rect_angle_spin.setValue(0)
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _rect_angle_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _rect_angle_spin)
+
+    # Fade
+    _fade_label = QLabel("Fade:")
+    _fade_check = QCheckBox()
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _fade_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _fade_check)
+
+    # Show COG
+    _show_cog_label = QLabel("Show COG:")
+    _show_cog_check = QCheckBox()
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _show_cog_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _show_cog_check)
+
+    # Show Local CS
+    _show_cs_label = QLabel("Local n-t CS:")
+    _show_cs_check = QCheckBox()
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _show_cs_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _show_cs_check)
+
+    # Show CS Labels
+    _show_cs_labels_label = QLabel("CS Labels:")
+    _show_cs_labels_check = QCheckBox()
+    _show_cs_labels_check.setChecked(True)
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _show_cs_labels_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _show_cs_labels_check)
+
+    # n-axis label
+    _n_label_label = QLabel("n Label:")
+    _n_label_edit = QLineEdit()
+    _n_label_edit.setText("n")
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _n_label_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _n_label_edit)
+
+    # t-axis label
+    _t_label_label = QLabel("t Label:")
+    _t_label_edit = QLineEdit()
+    _t_label_edit.setText("t")
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _t_label_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _t_label_edit)
+
+    # Install drag filters on shape style spinboxes
+    for _sb in [_item_opacity_spin, _fill_opacity_spin, _edge_opacity_spin,
+                _edge_thickness_spin, _rect_angle_spin]:
+        _sb.installEventFilter(SpinDragFilter(_sb))
+
     # --- Properties panel sync ---
     _updating_panel = False  # guard against feedback loops
+
+    _item_color_widgets = [
+        _item_color_divider,
+        _item_color_label, _item_color_btn,
+        _item_opacity_label, _item_opacity_spin,
+    ]
+
+    _shape_style_widgets = [
+        _shape_divider,
+        _fill_color_label, _fill_color_btn,
+        _fill_opacity_label, _fill_opacity_spin,
+        _edge_color_label, _edge_color_btn,
+        _edge_opacity_label, _edge_opacity_spin,
+        _edge_thickness_label, _edge_thickness_spin,
+    ]
+
+    _rect_only_widgets = [
+        _rect_angle_label, _rect_angle_spin,
+        _fade_label, _fade_check,
+        _show_cog_label, _show_cog_check,
+        _show_cs_label, _show_cs_check,
+        _show_cs_labels_label, _show_cs_labels_check,
+        _n_label_label, _n_label_edit,
+        _t_label_label, _t_label_edit,
+    ]
+
+    _cs_label_widgets = [
+        _show_cs_labels_label, _show_cs_labels_check,
+        _n_label_label, _n_label_edit,
+        _t_label_label, _t_label_edit,
+    ]
 
     # Widget groups for conditional visibility
     _start_end_widgets = [
@@ -705,12 +956,19 @@ def main():
         window.bodyThicknessLabel, window.bodyThicknessSpinBox,
         window.outlineThicknessLabel, window.outlineThicknessSpinBox,
     ]
+    _reverse_moment_label = QLabel("Reverse:")
+    _reverse_moment_check = QCheckBox()
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _reverse_moment_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _reverse_moment_check)
+
     _moment_only_widgets = [
         window.centerXLabel, window.centerXSpinBox,
         window.centerYLabel, window.centerYSpinBox,
         window.radiusLabel, window.radiusSpinBox,
         window.startAngleLabel, window.startAngleSpinBox,
         window.spanAngleLabel, window.spanAngleSpinBox,
+        _reverse_moment_label, _reverse_moment_check,
     ]
 
     def sync_panel():
@@ -721,10 +979,12 @@ def main():
             direction = window.canvas.get_selected_direction()
             line = window.canvas.get_selected_line()
             moment = window.canvas.get_selected_moment()
+            rect = window.canvas.get_selected_rectangle()
+            polygon = window.canvas.get_selected_polygon()
         except RuntimeError:
             return  # scene already destroyed during shutdown
 
-        if vec is None and point is None and direction is None and line is None and moment is None:
+        if vec is None and point is None and direction is None and line is None and moment is None and rect is None and polygon is None:
             window.propertiesGroupBox.setVisible(False)
             return
 
@@ -732,7 +992,7 @@ def main():
         _updating_panel = True
 
         # Hide all conditional widget groups first
-        for w in _start_end_widgets + _magnitude_widgets + _point_only_widgets + _direction_only_widgets + _line_only_widgets + _moment_only_widgets:
+        for w in _start_end_widgets + _magnitude_widgets + _point_only_widgets + _direction_only_widgets + _line_only_widgets + _moment_only_widgets + _item_color_widgets + _shape_style_widgets + _rect_only_widgets:
             w.setVisible(False)
 
         if vec is not None:
@@ -803,11 +1063,52 @@ def main():
             window.radiusSpinBox.setValue(moment.radius)
             window.startAngleSpinBox.setValue(moment.start_angle)
             window.spanAngleSpinBox.setValue(moment.span_angle)
+            _reverse_moment_check.setChecked(moment.reversed)
             window.showLabelCheckBox.setChecked(moment.label_visible)
             window.labelTextLineEdit.setText(moment.label_text)
             window.fontSizeSpinBox.setValue(moment.font_size)
             window.boldButton.setChecked(moment.label_bold)
             window.italicButton.setChecked(moment.label_italic)
+
+        # Item color/opacity (for vector, direction, point, moment)
+        color_item = vec or direction or point or moment
+        if color_item is not None:
+            for w in _item_color_widgets:
+                w.setVisible(True)
+            _set_button_color(_item_color_btn, color_item.item_color)
+            _item_opacity_spin.setValue(color_item.item_opacity)
+
+        # Shape style panel (rectangle or polygon)
+        shape = rect or polygon
+        if shape is not None:
+            for w in _shape_style_widgets:
+                w.setVisible(True)
+            _set_button_color(_fill_color_btn, shape.fill_color)
+            _fill_opacity_spin.setValue(shape.fill_opacity)
+            _set_button_color(_edge_color_btn, shape.edge_color)
+            _edge_opacity_spin.setValue(shape.edge_opacity)
+            _edge_thickness_spin.setValue(shape.outline_thickness)
+            window.showLabelCheckBox.setChecked(shape.label_visible)
+            window.labelTextLineEdit.setText(shape.label_text)
+            window.fontSizeSpinBox.setValue(shape.font_size)
+            window.boldButton.setChecked(shape.label_bold)
+            window.italicButton.setChecked(shape.label_italic)
+
+        # Rectangle-only properties
+        if rect is not None:
+            for w in _rect_only_widgets:
+                w.setVisible(True)
+            _rect_angle_spin.setValue(rect.angle_ccw)
+            _fade_check.setChecked(rect.fade)
+            _show_cog_check.setChecked(rect.show_cog)
+            _show_cs_check.setChecked(rect.show_local_cs)
+            _show_cs_labels_check.setChecked(rect.show_cs_labels)
+            _n_label_edit.setText(rect.n_label_text)
+            _t_label_edit.setText(rect.t_label_text)
+            # Only show CS label controls when local CS is visible
+            if not rect.show_local_cs:
+                for w in _cs_label_widgets:
+                    w.setVisible(False)
 
         _updating_panel = False
 
@@ -819,12 +1120,14 @@ def main():
     # --- Properties panel write-back ---
 
     def _get_selected_item():
-        """Return the selected vector, direction, line, point, or moment (whichever is active)."""
+        """Return the selected vector, direction, line, point, moment, rectangle, or polygon."""
         return (window.canvas.get_selected_vector()
                 or window.canvas.get_selected_direction()
                 or window.canvas.get_selected_line()
                 or window.canvas.get_selected_point()
-                or window.canvas.get_selected_moment())
+                or window.canvas.get_selected_moment()
+                or window.canvas.get_selected_rectangle()
+                or window.canvas.get_selected_polygon())
 
     def _get_selected_line_item():
         """Return the selected vector, direction, or line (items with tail/head)."""
@@ -1128,6 +1431,229 @@ def main():
         cmd = ChangeAnglesCommand(moment, old_start, old_span, old_start, val)
         undo_stack.push(cmd)
 
+    def _get_selected_shape():
+        """Return the selected rectangle or polygon."""
+        return (window.canvas.get_selected_rectangle()
+                or window.canvas.get_selected_polygon())
+
+    def on_fill_color_clicked():
+        if _updating_panel:
+            return
+        shape = _get_selected_shape()
+        if shape is None:
+            return
+        color = QColorDialog.getColor(shape.fill_color, window, "Fill Color")
+        if not color.isValid():
+            return
+        old_val = shape.fill_color
+        shape.fill_color = old_val  # revert for consistent redo
+        cmd = ChangeShapePropertyCommand(shape, "fill_color", old_val, color, "Change Fill Color")
+        undo_stack.push(cmd)
+        _set_button_color(_fill_color_btn, color)
+
+    def on_fill_opacity_changed(val):
+        if _updating_panel:
+            return
+        shape = _get_selected_shape()
+        if shape is None:
+            return
+        if val == shape.fill_opacity:
+            return
+        old_val = shape.fill_opacity
+        shape.fill_opacity = old_val  # revert for consistent redo
+        cmd = ChangeShapePropertyCommand(shape, "fill_opacity", old_val, val, "Change Fill Opacity")
+        undo_stack.push(cmd)
+
+    def on_edge_color_clicked():
+        if _updating_panel:
+            return
+        shape = _get_selected_shape()
+        if shape is None:
+            return
+        color = QColorDialog.getColor(shape.edge_color, window, "Edge Color")
+        if not color.isValid():
+            return
+        old_val = shape.edge_color
+        shape.edge_color = old_val  # revert for consistent redo
+        cmd = ChangeShapePropertyCommand(shape, "edge_color", old_val, color, "Change Edge Color")
+        undo_stack.push(cmd)
+        _set_button_color(_edge_color_btn, color)
+
+    def on_edge_opacity_changed(val):
+        if _updating_panel:
+            return
+        shape = _get_selected_shape()
+        if shape is None:
+            return
+        if val == shape.edge_opacity:
+            return
+        old_val = shape.edge_opacity
+        shape.edge_opacity = old_val  # revert for consistent redo
+        cmd = ChangeShapePropertyCommand(shape, "edge_opacity", old_val, val, "Change Edge Opacity")
+        undo_stack.push(cmd)
+
+    def on_edge_thickness_changed(val):
+        if _updating_panel:
+            return
+        shape = _get_selected_shape()
+        if shape is None:
+            return
+        if val == shape.outline_thickness:
+            return
+        old_val = shape.outline_thickness
+        shape.outline_thickness = old_val  # revert for consistent redo
+        cmd = ChangeShapePropertyCommand(shape, "outline_thickness", old_val, val, "Change Edge Thickness")
+        undo_stack.push(cmd)
+
+    # --- Item color/opacity handlers (vector, direction, point, moment) ---
+
+    def _get_selected_color_item():
+        return (window.canvas.get_selected_vector()
+                or window.canvas.get_selected_direction()
+                or window.canvas.get_selected_point()
+                or window.canvas.get_selected_moment())
+
+    def on_item_color_clicked():
+        if _updating_panel:
+            return
+        item = _get_selected_color_item()
+        if item is None:
+            return
+        color = QColorDialog.getColor(item.item_color, window, "Item Color")
+        if not color.isValid():
+            return
+        old_val = item.item_color
+        item.item_color = old_val
+        cmd = ChangeShapePropertyCommand(item, "item_color", old_val, color, "Change Color")
+        undo_stack.push(cmd)
+        _set_button_color(_item_color_btn, color)
+
+    def on_item_opacity_changed(val):
+        if _updating_panel:
+            return
+        item = _get_selected_color_item()
+        if item is None:
+            return
+        if val == item.item_opacity:
+            return
+        old_val = item.item_opacity
+        item.item_opacity = old_val
+        cmd = ChangeShapePropertyCommand(item, "item_opacity", old_val, val, "Change Opacity")
+        undo_stack.push(cmd)
+
+    _item_color_btn.clicked.connect(on_item_color_clicked)
+    _item_opacity_spin.valueChanged.connect(on_item_opacity_changed)
+
+    _fill_color_btn.clicked.connect(on_fill_color_clicked)
+    _fill_opacity_spin.valueChanged.connect(on_fill_opacity_changed)
+    _edge_color_btn.clicked.connect(on_edge_color_clicked)
+    _edge_opacity_spin.valueChanged.connect(on_edge_opacity_changed)
+    _edge_thickness_spin.valueChanged.connect(on_edge_thickness_changed)
+
+    # --- Rectangle-only property handlers ---
+
+    def on_rect_angle_changed(val):
+        if _updating_panel:
+            return
+        rect = window.canvas.get_selected_rectangle()
+        if rect is None:
+            return
+        if abs(val - rect.angle_ccw) < 0.05:
+            return
+        old_rotation = rect.rotation()
+        new_rotation = -val  # CCW display → CW internal
+        rect.setRotation(old_rotation)  # revert for consistent redo
+        cmd = ChangeRotationCommand(rect, old_rotation, new_rotation)
+        undo_stack.push(cmd)
+
+    def on_show_cog_toggled(checked):
+        if _updating_panel:
+            return
+        rect = window.canvas.get_selected_rectangle()
+        if rect is None:
+            return
+        if checked == rect.show_cog:
+            return
+        old_val = rect.show_cog
+        rect.show_cog = old_val
+        cmd = ChangeShapePropertyCommand(rect, "show_cog", old_val, checked, "Toggle COG")
+        undo_stack.push(cmd)
+
+    def on_show_cs_toggled(checked):
+        if _updating_panel:
+            return
+        rect = window.canvas.get_selected_rectangle()
+        if rect is None:
+            return
+        if checked == rect.show_local_cs:
+            return
+        old_val = rect.show_local_cs
+        rect.show_local_cs = old_val
+        cmd = ChangeShapePropertyCommand(rect, "show_local_cs", old_val, checked, "Toggle Local CS")
+        undo_stack.push(cmd)
+
+    def on_show_cs_labels_toggled(checked):
+        if _updating_panel:
+            return
+        rect = window.canvas.get_selected_rectangle()
+        if rect is None:
+            return
+        if checked == rect.show_cs_labels:
+            return
+        old_val = rect.show_cs_labels
+        rect.show_cs_labels = old_val
+        cmd = ChangeShapePropertyCommand(rect, "show_cs_labels", old_val, checked, "Toggle CS Labels")
+        undo_stack.push(cmd)
+
+    def on_n_label_changed():
+        if _updating_panel:
+            return
+        rect = window.canvas.get_selected_rectangle()
+        if rect is None:
+            return
+        new_text = _n_label_edit.text()
+        if new_text == rect.n_label_text:
+            return
+        old_text = rect.n_label_text
+        rect.n_label_text = old_text
+        cmd = ChangeShapePropertyCommand(rect, "n_label_text", old_text, new_text, "Change n Label")
+        undo_stack.push(cmd)
+
+    def on_t_label_changed():
+        if _updating_panel:
+            return
+        rect = window.canvas.get_selected_rectangle()
+        if rect is None:
+            return
+        new_text = _t_label_edit.text()
+        if new_text == rect.t_label_text:
+            return
+        old_text = rect.t_label_text
+        rect.t_label_text = old_text
+        cmd = ChangeShapePropertyCommand(rect, "t_label_text", old_text, new_text, "Change t Label")
+        undo_stack.push(cmd)
+
+    def on_fade_toggled(checked):
+        if _updating_panel:
+            return
+        rect = window.canvas.get_selected_rectangle()
+        if rect is None:
+            return
+        if checked == rect.fade:
+            return
+        old_val = rect.fade
+        rect.fade = old_val
+        cmd = ChangeShapePropertyCommand(rect, "fade", old_val, checked, "Toggle Fade")
+        undo_stack.push(cmd)
+
+    _rect_angle_spin.valueChanged.connect(on_rect_angle_changed)
+    _fade_check.toggled.connect(on_fade_toggled)
+    _show_cog_check.toggled.connect(on_show_cog_toggled)
+    _show_cs_check.toggled.connect(on_show_cs_toggled)
+    _show_cs_labels_check.toggled.connect(on_show_cs_labels_toggled)
+    _n_label_edit.editingFinished.connect(on_n_label_changed)
+    _t_label_edit.editingFinished.connect(on_t_label_changed)
+
     window.showArrowheadCheckBox.toggled.connect(on_show_arrowhead_toggled)
     window.bodyThicknessSpinBox.valueChanged.connect(on_body_thickness_changed)
     window.outlineThicknessSpinBox.valueChanged.connect(on_outline_thickness_changed)
@@ -1137,6 +1663,21 @@ def main():
     window.startAngleSpinBox.valueChanged.connect(on_start_angle_changed)
     window.spanAngleSpinBox.valueChanged.connect(on_span_angle_changed)
 
+    def on_reverse_moment_toggled(checked):
+        if _updating_panel:
+            return
+        moment = window.canvas.get_selected_moment()
+        if moment is None:
+            return
+        if checked == moment.reversed:
+            return
+        old_val = moment.reversed
+        moment.reversed = old_val  # revert for consistent redo
+        cmd = ChangeShapePropertyCommand(moment, "reversed", old_val, checked, "Reverse Moment")
+        undo_stack.push(cmd)
+
+    _reverse_moment_check.toggled.connect(on_reverse_moment_toggled)
+
     # --- Layer visibility checkboxes ---
     window.backgroundLayerCheckBox.toggled.connect(window.canvas.set_background_visible)
     window.vectorsLayerCheckBox.toggled.connect(window.canvas.set_vectors_visible)
@@ -1144,9 +1685,12 @@ def main():
     window.directionsLayerCheckBox.toggled.connect(window.canvas.set_directions_visible)
     window.linesLayerCheckBox.toggled.connect(window.canvas.set_lines_visible)
     window.momentsLayerCheckBox.toggled.connect(window.canvas.set_moments_visible)
+    window.rectanglesLayerCheckBox.toggled.connect(window.canvas.set_rectangles_visible)
+    window.polygonsLayerCheckBox.toggled.connect(window.canvas.set_polygons_visible)
 
-    # Sync panel after undo/redo so it reflects current state
+    # Sync panel after undo/redo and modifications (e.g. drag) so it reflects current state
     undo_stack.indexChanged.connect(lambda _: sync_panel())
+    window.canvas.modified.connect(sync_panel)
 
     # --- Dirty tracking ---
     window.canvas.modified.connect(mark_dirty)

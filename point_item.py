@@ -41,9 +41,14 @@ point_settings = PointSettings()  # global singleton
 class PointItem(LabelPropertiesMixin, QGraphicsEllipseItem):
     """A point marker (filled circle) at a single position."""
 
+    def _default_item_color(self) -> QColor:
+        return QColor(point_settings.color)
+
     def __init__(self, pos: QPointF, parent=None):
         super().__init__(parent)
         self._pos = QPointF(pos)
+        self._item_color = QColor(point_settings.color)
+        self._item_opacity = 255
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setZValue(1)
@@ -101,7 +106,7 @@ class PointItem(LabelPropertiesMixin, QGraphicsEllipseItem):
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None):
         is_sel = self.isSelected()
-        color = SELECTED_COLOR if is_sel else point_settings.color
+        color = SELECTED_COLOR if is_sel else self._get_item_color_with_opacity()
 
         self._label.update_color(is_sel)
 

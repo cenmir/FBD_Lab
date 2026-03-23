@@ -191,6 +191,13 @@ class LabelPropertiesMixin:
     - Implement _get_handles() -> list
     """
 
+    # Default item color — subclasses should set _item_color before calling
+    # _init_label_properties, or override _default_item_color().
+    _DEFAULT_ITEM_COLOR = QColor(0, 0, 0)
+
+    def _default_item_color(self) -> QColor:
+        return QColor(self._DEFAULT_ITEM_COLOR)
+
     def _init_label_properties(self):
         self._label_text = ""
         self._label_visible = False
@@ -201,6 +208,11 @@ class LabelPropertiesMixin:
         self._z_order = 0
         self.on_modified = None
         self.on_push_undo = None
+        # Per-item color and opacity (if not already set by subclass __init__)
+        if not hasattr(self, '_item_color'):
+            self._item_color = self._default_item_color()
+        if not hasattr(self, '_item_opacity'):
+            self._item_opacity = 255
 
     # --- Abstract methods (must override) ---
 
@@ -275,6 +287,30 @@ class LabelPropertiesMixin:
         self._label.update_display()
 
     @property
+    def item_color(self) -> QColor:
+        return QColor(self._item_color)
+
+    @item_color.setter
+    def item_color(self, value: QColor):
+        self._item_color = QColor(value)
+        self.update()
+
+    @property
+    def item_opacity(self) -> int:
+        return self._item_opacity
+
+    @item_opacity.setter
+    def item_opacity(self, value: int):
+        self._item_opacity = max(0, min(255, value))
+        self.update()
+
+    def _get_item_color_with_opacity(self) -> QColor:
+        """Return item color with opacity applied (for use in paint methods)."""
+        c = QColor(self._item_color)
+        c.setAlpha(self._item_opacity)
+        return c
+
+    @property
     def z_order(self) -> int:
         return self._z_order
 
@@ -313,7 +349,7 @@ class LabelPropertiesMixin:
     # --- Serialization helpers ---
 
     def _base_to_dict(self) -> dict:
-        return {
+        d = {
             "label_text": self._label_text,
             "label_visible": self._label_visible,
             "label_offset": [self._label_offset.x(), self._label_offset.y()],
@@ -322,6 +358,13 @@ class LabelPropertiesMixin:
             "label_italic": self._label_italic,
             "z_order": self._z_order,
         }
+        # Only save color/opacity if non-default
+        default_color = self._default_item_color()
+        if self._item_color != default_color:
+            d["item_color"] = self._item_color.name()
+        if self._item_opacity != 255:
+            d["item_opacity"] = self._item_opacity
+        return d
 
     def _base_from_dict(self, data: dict):
         self._label_text = data.get("label_text", "")
@@ -331,6 +374,9 @@ class LabelPropertiesMixin:
         self._font_size = data.get("font_size", DEFAULT_FONT_SIZE)
         self._label_bold = data.get("label_bold", True)
         self._label_italic = data.get("label_italic", True)
+        if "item_color" in data:
+            self._item_color = QColor(data["item_color"])
+        self._item_opacity = data.get("item_opacity", 255)
         self._label.set_font_size(self._font_size)
         self._label.update_display()
         self._update_label_visibility()

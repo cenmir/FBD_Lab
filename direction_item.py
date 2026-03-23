@@ -24,11 +24,16 @@ ARROWHEAD_WIDTH = 14
 class DirectionItem(LabelPropertiesMixin, QGraphicsPathItem):
     """A dashed line from tail to head with an optional open-triangle arrowhead."""
 
+    def _default_item_color(self) -> QColor:
+        return QColor(DIRECTION_COLOR)
+
     def __init__(self, tail: QPointF, head: QPointF, parent=None):
         super().__init__(parent)
         self._tail = QPointF(tail)
         self._head = QPointF(head)
         self._show_arrowhead = False
+        self._item_color = QColor(DIRECTION_COLOR)
+        self._item_opacity = 255
 
         self._head_polygon: QPolygonF | None = None
         self._shaft_end = QPointF(head)
@@ -139,7 +144,7 @@ class DirectionItem(LabelPropertiesMixin, QGraphicsPathItem):
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None):
         is_sel = self.isSelected()
-        color = SELECTED_COLOR if is_sel else DIRECTION_COLOR
+        color = SELECTED_COLOR if is_sel else self._get_item_color_with_opacity()
 
         self._tail_handle.setVisible(is_sel)
         self._head_handle.setVisible(is_sel)

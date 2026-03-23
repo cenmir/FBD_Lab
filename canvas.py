@@ -7,12 +7,12 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPointF
 from PyQt6.QtGui import (
     QPixmap, QDragEnterEvent, QDropEvent, QKeyEvent,
     QImage, QKeySequence, QMouseEvent, QPen, QColor, QPainter,
-    QUndoStack,
+    QUndoStack, QBrush, QPolygonF,
 )
-from PyQt6.QtGui import QBrush
 from PyQt6.QtWidgets import (
     QGraphicsView, QGraphicsScene, QGraphicsPixmapItem,
-    QGraphicsRectItem, QGraphicsLineItem, QApplication, QMenu,
+    QGraphicsRectItem, QGraphicsLineItem, QGraphicsPolygonItem,
+    QGraphicsEllipseItem, QApplication, QMenu,
 )
 
 from vector_item import VectorItem
@@ -20,6 +20,8 @@ from point_item import PointItem
 from direction_item import DirectionItem
 from line_item import LineItem
 from moment_item import MomentItem
+from rectangle_item import RectangleItem
+from polygon_item import PolygonItem
 from commands import (
     AddItemCommand, DeleteItemCommand, MoveItemCommand,
     ChangeRadiusCommand, ChangeZValueCommand,
@@ -73,6 +75,8 @@ class ToolMode(Enum):
     DIRECTION = auto()
     LINE = auto()
     MOMENT = auto()
+    RECTANGLE = auto()
+    POLYGON = auto()
 
 
 class FBDCanvas(QGraphicsView):
@@ -105,6 +109,8 @@ class FBDCanvas(QGraphicsView):
             'directions': [],
             'lines': [],
             'moments': [],
+            'rectangles': [],
+            'polygons': [],
         }
         self._visibility: dict[str, bool] = {
             'vectors': True,
@@ -112,6 +118,8 @@ class FBDCanvas(QGraphicsView):
             'directions': True,
             'lines': True,
             'moments': True,
+            'rectangles': True,
+            'polygons': True,
         }
         self._type_classes: dict[str, type] = {
             'vectors': VectorItem,
@@ -119,6 +127,8 @@ class FBDCanvas(QGraphicsView):
             'directions': DirectionItem,
             'lines': LineItem,
             'moments': MomentItem,
+            'rectangles': RectangleItem,
+            'polygons': PolygonItem,
         }
 
         # Session metadata
@@ -139,6 +149,17 @@ class FBDCanvas(QGraphicsView):
         # Radius-drag state (moments)
         self._dragging_moment_radius: MomentItem | None = None
         self._drag_moment_old_radius: float | None = None
+
+        # Rectangle preview (QGraphicsRectItem instead of line)
+        self._preview_rect: QGraphicsRectItem | None = None
+
+        # Polygon creation state
+        self._polygon_vertices: list[QPointF] = []
+        self._polygon_preview_lines: list[QGraphicsLineItem] = []
+        self._polygon_tracking_line: QGraphicsLineItem | None = None
+        self._polygon_close_marker: QGraphicsEllipseItem | None = None
+        self._polygon_preview_fill: QGraphicsPolygonItem | None = None
+        _POLYGON_CLOSE_DIST = 15  # pixels to snap-close
 
         # Background visibility (separate from item registry)
         self._bg_visible = True
@@ -180,7 +201,62 @@ class FBDCanvas(QGraphicsView):
             self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
         else:
             self.viewport().setCursor(Qt.CursorShape.CrossCursor)
+        # Cancel polygon drawing if switching away
+        if mode != ToolMode.POLYGON:
+            self._cancel_polygon()
         self.tool_changed.emit(mode)
+
+    def _cancel_polygon(self):
+        """Remove all polygon preview items and clear vertices."""
+        for line in self._polygon_preview_lines:
+            self._scene.removeItem(line)
+        self._polygon_preview_lines.clear()
+        if self._polygon_tracking_line:
+            self._scene.removeItem(self._polygon_tracking_line)
+            self._polygon_tracking_line = None
+        if self._polygon_close_marker:
+            self._scene.removeItem(self._polygon_close_marker)
+            self._polygon_close_marker = None
+        if self._polygon_preview_fill:
+            self._scene.removeItem(self._polygon_preview_fill)
+            self._polygon_preview_fill = None
+        self._polygon_vertices.clear()
+
+    def _finish_polygon(self):
+        """Complete polygon from accumulated vertices."""
+        verts = self._polygon_vertices
+        if len(verts) < 3:
+            self._cancel_polygon()
+            return
+        # Compute centroid and make vertices local
+        cx = sum(v.x() for v in verts) / len(verts)
+        cy = sum(v.y() for v in verts) / len(verts)
+        center = QPointF(cx, cy)
+        local_verts = [QPointF(v.x() - cx, v.y() - cy) for v in verts]
+        poly = PolygonItem(center, local_verts)
+        if self._has_undo_stack():
+            cmd = AddItemCommand(self, poly, 'polygons')
+            self._undo_stack.push(cmd)
+        else:
+            self.add_polygon(poly)
+            self.modified.emit()
+        self._scene.clearSelection()
+        poly.setSelected(True)
+        # Clean up all preview items
+        for line in self._polygon_preview_lines:
+            self._scene.removeItem(line)
+        self._polygon_preview_lines.clear()
+        if self._polygon_tracking_line:
+            self._scene.removeItem(self._polygon_tracking_line)
+            self._polygon_tracking_line = None
+        if self._polygon_close_marker:
+            self._scene.removeItem(self._polygon_close_marker)
+            self._polygon_close_marker = None
+        if self._polygon_preview_fill:
+            self._scene.removeItem(self._polygon_preview_fill)
+            self._polygon_preview_fill = None
+        self._polygon_vertices.clear()
+        self.set_tool(ToolMode.SELECT)
 
     # --- Background ---
 
@@ -295,6 +371,20 @@ class FBDCanvas(QGraphicsView):
     def get_selected_moment(self):      return self._get_selected_item(MomentItem)
     def clear_moments(self):            self._clear_items('moments')
 
+    def add_rectangle(self, r):         self._add_item('rectangles', r)
+    def remove_rectangle(self, r):      self._remove_item('rectangles', r)
+    def get_rectangles(self):           return self._get_items('rectangles')
+    def get_rectangles_data(self):      return self._get_items_data('rectangles')
+    def get_selected_rectangle(self):   return self._get_selected_item(RectangleItem)
+    def clear_rectangles(self):         self._clear_items('rectangles')
+
+    def add_polygon(self, p):           self._add_item('polygons', p)
+    def remove_polygon(self, p):        self._remove_item('polygons', p)
+    def get_polygons(self):             return self._get_items('polygons')
+    def get_polygons_data(self):        return self._get_items_data('polygons')
+    def get_selected_polygon(self):     return self._get_selected_item(PolygonItem)
+    def clear_polygons(self):           self._clear_items('polygons')
+
     # --- Layer visibility ---
 
     def set_background_visible(self, visible: bool):
@@ -307,6 +397,8 @@ class FBDCanvas(QGraphicsView):
     def set_directions_visible(self, visible):  self._set_type_visible('directions', visible)
     def set_lines_visible(self, visible):       self._set_type_visible('lines', visible)
     def set_moments_visible(self, visible):     self._set_type_visible('moments', visible)
+    def set_rectangles_visible(self, visible):  self._set_type_visible('rectangles', visible)
+    def set_polygons_visible(self, visible):    self._set_type_visible('polygons', visible)
 
     # --- Snapping ---
 
@@ -375,6 +467,39 @@ class FBDCanvas(QGraphicsView):
                 self._scene.addItem(self._preview_line)
                 return
 
+            # Rectangle creation mode (click-drag: corner to corner)
+            if self._tool == ToolMode.RECTANGLE:
+                self._drawing = True
+                self._draw_start = self.mapToScene(event.pos())
+                self._preview_rect = QGraphicsRectItem()
+                self._preview_rect.setPen(QPen(QColor(0x8B, 0x6F, 0x4E, 200), 2, Qt.PenStyle.DashLine))
+                self._preview_rect.setBrush(QBrush(QColor(0xD8, 0xBA, 0x94, 100)))
+                self._preview_rect.setZValue(100)
+                self._scene.addItem(self._preview_rect)
+                return
+
+            # Polygon creation mode (click to add vertices, click near first to close)
+            if self._tool == ToolMode.POLYGON:
+                scene_pos = self.mapToScene(event.pos())
+                # Check if closing the polygon (click near first vertex)
+                if len(self._polygon_vertices) >= 3:
+                    import math
+                    first = self._polygon_vertices[0]
+                    dist = math.hypot(scene_pos.x() - first.x(), scene_pos.y() - first.y())
+                    if dist < 15:
+                        self._finish_polygon()
+                        return
+                self._polygon_vertices.append(scene_pos)
+                # Draw solid edge from previous vertex
+                if len(self._polygon_vertices) >= 2:
+                    prev = self._polygon_vertices[-2]
+                    line = QGraphicsLineItem(prev.x(), prev.y(), scene_pos.x(), scene_pos.y())
+                    line.setPen(QPen(QColor(0x8B, 0x6F, 0x4E, 200), 2))
+                    line.setZValue(100)
+                    self._scene.addItem(line)
+                    self._polygon_preview_lines.append(line)
+                return
+
             # Point creation mode
             if self._tool == ToolMode.POINT:
                 scene_pos = self.mapToScene(event.pos())
@@ -407,7 +532,7 @@ class FBDCanvas(QGraphicsView):
                         self._scene.clearSelection()
                         item.setSelected(True)
                     return
-                if isinstance(item, (VectorItem, PointItem, DirectionItem, LineItem)):
+                if isinstance(item, (VectorItem, PointItem, DirectionItem, LineItem, RectangleItem, PolygonItem)):
                     self._dragging_item = item
                     self._drag_anchor = item.drag_anchor()
                     self._drag_last = scene_pos
@@ -419,7 +544,17 @@ class FBDCanvas(QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
-        # Vector creation preview
+        # Rectangle creation preview
+        if self._drawing and self._preview_rect and self._draw_start:
+            end = self.mapToScene(event.pos())
+            x1 = min(self._draw_start.x(), end.x())
+            y1 = min(self._draw_start.y(), end.y())
+            w = abs(end.x() - self._draw_start.x())
+            h = abs(end.y() - self._draw_start.y())
+            self._preview_rect.setRect(x1, y1, w, h)
+            return
+
+        # Vector/Direction/Line/Moment creation preview (line)
         if self._drawing and self._preview_line and self._draw_start:
             end = self.mapToScene(event.pos())
             snap = not (event.modifiers() & Qt.KeyboardModifier.ControlModifier)
@@ -429,6 +564,50 @@ class FBDCanvas(QGraphicsView):
                 end.x(), end.y()
             )
             return
+
+        # Polygon tracking line (from last vertex to cursor)
+        if self._tool == ToolMode.POLYGON and self._polygon_vertices:
+            import math
+            scene_pos = self.mapToScene(event.pos())
+            last = self._polygon_vertices[-1]
+            # Update or create the tracking line
+            if self._polygon_tracking_line is None:
+                self._polygon_tracking_line = QGraphicsLineItem()
+                self._polygon_tracking_line.setPen(
+                    QPen(QColor(0x8B, 0x6F, 0x4E, 150), 2, Qt.PenStyle.DashLine))
+                self._polygon_tracking_line.setZValue(100)
+                self._scene.addItem(self._polygon_tracking_line)
+            self._polygon_tracking_line.setLine(
+                last.x(), last.y(), scene_pos.x(), scene_pos.y())
+            # Show close indicator when near first vertex
+            if len(self._polygon_vertices) >= 3:
+                first = self._polygon_vertices[0]
+                dist = math.hypot(scene_pos.x() - first.x(), scene_pos.y() - first.y())
+                if dist < 15:
+                    # Show shaded polygon preview + close marker
+                    if self._polygon_close_marker is None:
+                        self._polygon_close_marker = QGraphicsEllipseItem(-8, -8, 16, 16)
+                        self._polygon_close_marker.setPen(QPen(QColor(0x8B, 0x6F, 0x4E), 2))
+                        self._polygon_close_marker.setBrush(QBrush(QColor(0xD8, 0xBA, 0x94, 150)))
+                        self._polygon_close_marker.setZValue(101)
+                        self._scene.addItem(self._polygon_close_marker)
+                    self._polygon_close_marker.setPos(first)
+                    self._polygon_close_marker.setVisible(True)
+                    # Shaded fill preview
+                    if self._polygon_preview_fill is None:
+                        self._polygon_preview_fill = QGraphicsPolygonItem()
+                        self._polygon_preview_fill.setPen(QPen(QColor(0x8B, 0x6F, 0x4E, 150), 1, Qt.PenStyle.DashLine))
+                        self._polygon_preview_fill.setBrush(QBrush(QColor(0xD8, 0xBA, 0x94, 80)))
+                        self._polygon_preview_fill.setZValue(99)
+                        self._scene.addItem(self._polygon_preview_fill)
+                    self._polygon_preview_fill.setPolygon(QPolygonF(self._polygon_vertices))
+                    self._polygon_preview_fill.setVisible(True)
+                else:
+                    if self._polygon_close_marker:
+                        self._polygon_close_marker.setVisible(False)
+                    if self._polygon_preview_fill:
+                        self._polygon_preview_fill.setVisible(False)
+            # Don't return — let other events propagate
 
         # Unified body drag (vector / point / direction / line)
         if self._dragging_item and self._drag_last:
@@ -466,6 +645,9 @@ class FBDCanvas(QGraphicsView):
                 if self._preview_line:
                     self._scene.removeItem(self._preview_line)
                     self._preview_line = None
+                if self._preview_rect:
+                    self._scene.removeItem(self._preview_rect)
+                    self._preview_rect = None
 
                 if self._draw_start:
                     dx = end.x() - self._draw_start.x()
@@ -498,6 +680,16 @@ class FBDCanvas(QGraphicsView):
                                 self.modified.emit()
                             self._scene.clearSelection()
                             m.setSelected(True)
+                        elif creating_tool == ToolMode.RECTANGLE:
+                            rect = RectangleItem(self._draw_start, end)
+                            if self._has_undo_stack():
+                                cmd = AddItemCommand(self, rect, 'rectangles')
+                                self._undo_stack.push(cmd)
+                            else:
+                                self.add_rectangle(rect)
+                                self.modified.emit()
+                            self._scene.clearSelection()
+                            rect.setSelected(True)
                         elif creating_tool == ToolMode.LINE:
                             ln = LineItem(self._draw_start, end)
                             if self._has_undo_stack():
@@ -563,6 +755,13 @@ class FBDCanvas(QGraphicsView):
                 return
 
         super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent):
+        # Double-click finishes polygon drawing
+        if self._tool == ToolMode.POLYGON and len(self._polygon_vertices) >= 3:
+            self._finish_polygon()
+            return
+        super().mouseDoubleClickEvent(event)
 
     # --- Selection ---
 

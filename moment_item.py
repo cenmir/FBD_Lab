@@ -193,6 +193,9 @@ class MomentArcEndpoint(QGraphicsEllipseItem):
 class MomentItem(LabelPropertiesMixin, QGraphicsPathItem):
     """A moment (rotational force) visualized as a curved arc arrow."""
 
+    def _default_item_color(self) -> QColor:
+        return QColor(MOMENT_ARC_COLOR)
+
     def __init__(self, center: QPointF, radius: float = DEFAULT_RADIUS,
                  start_angle: float = DEFAULT_START_ANGLE,
                  span_angle: float = DEFAULT_SPAN_ANGLE, parent=None):
@@ -201,6 +204,9 @@ class MomentItem(LabelPropertiesMixin, QGraphicsPathItem):
         self._radius = radius
         self._start_angle = start_angle
         self._span_angle = span_angle
+        self._item_color = QColor(MOMENT_ARC_COLOR)
+        self._item_opacity = 255
+        self._reversed = False
 
         self._arrowhead_polygon: QPolygonF | None = None
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
@@ -248,6 +254,16 @@ class MomentItem(LabelPropertiesMixin, QGraphicsPathItem):
     @property
     def end_angle(self) -> float:
         return (self._start_angle + self._span_angle) % 360
+
+    @property
+    def reversed(self) -> bool:
+        return self._reversed
+
+    @reversed.setter
+    def reversed(self, value: bool):
+        self._reversed = value
+        self._rebuild_path()
+        self.update()
 
     # --- Movement / mutation ---
 
@@ -324,12 +340,16 @@ class MomentItem(LabelPropertiesMixin, QGraphicsPathItem):
         path.arcMoveTo(arc_rect, self._start_angle)
         path.arcTo(arc_rect, self._start_angle, self._span_angle)
 
-        # Arrowhead at the end of the arc
-        end_angle_deg = self.end_angle
-        tip = _angle_point(self._center, r, end_angle_deg)
-
+        # Arrowhead: at end of arc normally, at start when reversed
         ccw = self._span_angle > 0
-        tangent = _tangent_direction(end_angle_deg, ccw)
+        if self._reversed:
+            arrow_angle_deg = self._start_angle % 360
+            tip = _angle_point(self._center, r, arrow_angle_deg)
+            tangent = _tangent_direction(arrow_angle_deg, not ccw)
+        else:
+            arrow_angle_deg = self.end_angle
+            tip = _angle_point(self._center, r, arrow_angle_deg)
+            tangent = _tangent_direction(arrow_angle_deg, ccw)
         t_len = math.hypot(tangent.x(), tangent.y())
         if t_len > 0:
             tx, ty = tangent.x() / t_len, tangent.y() / t_len
@@ -380,11 +400,11 @@ class MomentItem(LabelPropertiesMixin, QGraphicsPathItem):
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None):
         is_sel = self.isSelected()
-        color = SELECTED_COLOR if is_sel else MOMENT_ARC_COLOR
+        color = SELECTED_COLOR if is_sel else self._get_item_color_with_opacity()
 
         self._start_handle.setVisible(is_sel)
         self._end_handle.setVisible(is_sel)
-        self._center_marker.setBrush(QBrush(SELECTED_COLOR if is_sel else MOMENT_CENTER_COLOR))
+        self._center_marker.setBrush(QBrush(SELECTED_COLOR if is_sel else self._get_item_color_with_opacity()))
         self._label.update_color(is_sel)
 
         # Draw the arc
@@ -413,6 +433,7 @@ class MomentItem(LabelPropertiesMixin, QGraphicsPathItem):
         d["radius"] = self._radius
         d["start_angle"] = self._start_angle
         d["span_angle"] = self._span_angle
+        d["reversed"] = self._reversed
         return d
 
     @classmethod
@@ -423,5 +444,7 @@ class MomentItem(LabelPropertiesMixin, QGraphicsPathItem):
             start_angle=data.get("start_angle", DEFAULT_START_ANGLE),
             span_angle=data.get("span_angle", DEFAULT_SPAN_ANGLE),
         )
+        m._reversed = data.get("reversed", False)
         m._base_from_dict(data)
+        m._rebuild_path()
         return m

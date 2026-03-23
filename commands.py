@@ -163,6 +163,31 @@ class ChangeOutlineThicknessCommand(QUndoCommand):
 
 
 # ---------------------------------------------------------------------------
+# Shape style commands (rectangle / polygon)
+# ---------------------------------------------------------------------------
+
+class ChangeShapePropertyCommand(QUndoCommand):
+    """Generic command to change a property on a rectangle or polygon item."""
+
+    def __init__(self, item, prop_name: str, old_val, new_val, description: str = ""):
+        super().__init__(description or f"Change {prop_name}")
+        self._item = item
+        self._prop = prop_name
+        self._old_val = old_val
+        self._new_val = new_val
+
+    def redo(self):
+        setattr(self._item, self._prop, self._new_val)
+        if self._item.on_modified:
+            self._item.on_modified()
+
+    def undo(self):
+        setattr(self._item, self._prop, self._old_val)
+        if self._item.on_modified:
+            self._item.on_modified()
+
+
+# ---------------------------------------------------------------------------
 # Moment-specific commands
 # ---------------------------------------------------------------------------
 
@@ -437,5 +462,78 @@ class ChangeLabelItalicCommand(QUndoCommand):
 
     def undo(self):
         self._item.label_italic = self._old_val
+        if self._item.on_modified:
+            self._item.on_modified()
+
+
+# ---------------------------------------------------------------------------
+# Rotation command (shared by RectangleItem and PolygonItem)
+# ---------------------------------------------------------------------------
+
+class ChangeRotationCommand(QUndoCommand):
+    """Command to change an item's rotation angle."""
+
+    def __init__(self, item, old_rotation: float, new_rotation: float):
+        super().__init__("Rotate Item")
+        self._item = item
+        self._old_rotation = old_rotation
+        self._new_rotation = new_rotation
+
+    def redo(self):
+        self._item.setRotation(self._new_rotation)
+        if self._item.on_modified:
+            self._item.on_modified()
+
+    def undo(self):
+        self._item.setRotation(self._old_rotation)
+        if self._item.on_modified:
+            self._item.on_modified()
+
+
+# ---------------------------------------------------------------------------
+# Rectangle-specific commands
+# ---------------------------------------------------------------------------
+
+class ChangeRectCommand(QUndoCommand):
+    """Command to change a rectangle's local rect (resize via corners)."""
+
+    def __init__(self, item, old_rect, new_rect):
+        super().__init__("Resize Rectangle")
+        from PyQt6.QtCore import QRectF
+        self._item = item
+        self._old_rect = QRectF(old_rect)
+        self._new_rect = QRectF(new_rect)
+
+    def redo(self):
+        self._item._set_local_rect(self._new_rect)
+        if self._item.on_modified:
+            self._item.on_modified()
+
+    def undo(self):
+        self._item._set_local_rect(self._old_rect)
+        if self._item.on_modified:
+            self._item.on_modified()
+
+
+# ---------------------------------------------------------------------------
+# Polygon-specific commands
+# ---------------------------------------------------------------------------
+
+class ChangePolygonVerticesCommand(QUndoCommand):
+    """Command to change a polygon's vertices."""
+
+    def __init__(self, item, old_verts: list[list[float]], new_verts: list[list[float]]):
+        super().__init__("Edit Polygon")
+        self._item = item
+        self._old_verts = old_verts
+        self._new_verts = new_verts
+
+    def redo(self):
+        self._item._set_vertices_from_list(self._new_verts)
+        if self._item.on_modified:
+            self._item.on_modified()
+
+    def undo(self):
+        self._item._set_vertices_from_list(self._old_verts)
         if self._item.on_modified:
             self._item.on_modified()
