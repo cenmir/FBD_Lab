@@ -26,6 +26,7 @@ DEFAULT_FONT_SIZE = 22
 # ─── LaTeX-to-Unicode mapping ─────────────────────────────────────────────────
 
 LATEX_TO_UNICODE = {
+    # Lowercase Greek
     "\\alpha": "\u03b1", "\\beta": "\u03b2", "\\gamma": "\u03b3",
     "\\delta": "\u03b4", "\\epsilon": "\u03b5", "\\zeta": "\u03b6",
     "\\eta": "\u03b7", "\\theta": "\u03b8", "\\iota": "\u03b9",
@@ -34,9 +35,29 @@ LATEX_TO_UNICODE = {
     "\\rho": "\u03c1", "\\sigma": "\u03c3", "\\tau": "\u03c4",
     "\\phi": "\u03c6", "\\chi": "\u03c7", "\\psi": "\u03c8",
     "\\omega": "\u03c9",
+    # Uppercase Greek
     "\\Gamma": "\u0393", "\\Delta": "\u0394", "\\Theta": "\u0398",
     "\\Lambda": "\u039b", "\\Sigma": "\u03a3", "\\Phi": "\u03a6",
     "\\Psi": "\u03a8", "\\Omega": "\u03a9",
+    # Common symbols
+    "\\circ": "\u00b0",      # degree sign °
+    "\\deg": "\u00b0",       # alias
+    "\\cdot": "\u00b7",      # middle dot ·
+    "\\times": "\u00d7",     # multiplication ×
+    "\\pm": "\u00b1",        # plus-minus ±
+    "\\inf": "\u221e",       # infinity ∞
+    "\\infty": "\u221e",     # alias
+    "\\perp": "\u27c2",      # perpendicular ⟂
+    "\\parallel": "\u2225",  # parallel ∥
+    "\\neq": "\u2260",       # not equal ≠
+    "\\leq": "\u2264",       # ≤
+    "\\geq": "\u2265",       # ≥
+    "\\approx": "\u2248",    # ≈
+    "\\sum": "\u2211",       # ∑
+    "\\sqrt": "\u221a",      # √
+    "\\rightarrow": "\u2192", # →
+    "\\leftarrow": "\u2190",  # ←
+    "\\hat": "\u0302",       # combining circumflex
 }
 
 
@@ -78,17 +99,33 @@ def get_cm_font(size: int = DEFAULT_FONT_SIZE) -> QFont:
 
 # ─── Label text formatting ─────────────────────────────────────────────────────
 
+_TOKEN = r'[A-Za-z0-9\u00b0-\u03ff]+'  # alphanumeric + unicode symbols
 _LABEL_RE = re.compile(
-    r'([A-Za-z]+)_\{([^}]+)\}'       # base_{subscript}
-    r'|([A-Za-z]+)_([A-Za-z0-9]+)'   # base_sub
-    r'|(.+)'                          # plain text
+    r'(' + _TOKEN + r')_\{([^}]+)\}\^\{([^}]+)\}'    # base_{sub}^{sup}
+    r'|(' + _TOKEN + r')\^\{([^}]+)\}_\{([^}]+)\}'   # base^{sup}_{sub}
+    r'|(' + _TOKEN + r')_\{([^}]+)\}'                 # base_{subscript}
+    r'|(' + _TOKEN + r')_(' + _TOKEN + r')'           # base_sub
+    r'|(' + _TOKEN + r')\^\{([^}]+)\}'                # base^{superscript}
+    r'|(' + _TOKEN + r')\^(' + _TOKEN + r')'          # base^sup (single token)
+    r'|\^\{([^}]+)\}'                                 # ^{superscript} alone
+    r'|\^(' + _TOKEN + r')'                           # ^sup alone
+    r'|_\{([^}]+)\}'                                  # _{subscript} alone
+    r'|_(' + _TOKEN + r')'                            # _sub alone
+    r'|([^_^]+)'                                      # plain text (up to next _ or ^)
 )
 
 
 def label_to_html(text: str, bold: bool = True, italic: bool = True) -> str:
-    """Convert physics shorthand to HTML with configurable base styling."""
+    """Convert physics shorthand to HTML with configurable base styling.
+
+    Supports: base_{sub}, base^{sup}, base_{sub}^{sup}, ^{sup}, _{sub},
+    and LaTeX commands like \\alpha, \\circ, etc.
+    """
     if not text:
         return ""
+
+    # Replace LaTeX commands first
+    text = latex_to_unicode(text)
 
     def _wrap_base(s: str) -> str:
         result = s
@@ -98,14 +135,36 @@ def label_to_html(text: str, bold: bool = True, italic: bool = True) -> str:
             result = f"<b>{result}</b>"
         return result
 
+    def _sub(s: str) -> str:
+        return f"<sub><i>{latex_to_unicode(s)}</i></sub>"
+
+    def _sup(s: str) -> str:
+        return f"<sup><i>{latex_to_unicode(s)}</i></sup>"
+
     parts = []
     for m in _LABEL_RE.finditer(text):
-        if m.group(1) is not None:
-            parts.append(f"{_wrap_base(m.group(1))}<sub><i>{m.group(2)}</i></sub>")
-        elif m.group(3) is not None:
-            parts.append(f"{_wrap_base(m.group(3))}<sub><i>{m.group(4)}</i></sub>")
-        elif m.group(5) is not None:
-            parts.append(_wrap_base(m.group(5)))
+        if m.group(1) is not None:       # base_{sub}^{sup}
+            parts.append(f"{_wrap_base(m.group(1))}{_sub(m.group(2))}{_sup(m.group(3))}")
+        elif m.group(4) is not None:     # base^{sup}_{sub}
+            parts.append(f"{_wrap_base(m.group(4))}{_sup(m.group(5))}{_sub(m.group(6))}")
+        elif m.group(7) is not None:     # base_{sub}
+            parts.append(f"{_wrap_base(m.group(7))}{_sub(m.group(8))}")
+        elif m.group(9) is not None:     # base_sub (no braces)
+            parts.append(f"{_wrap_base(m.group(9))}{_sub(m.group(10))}")
+        elif m.group(11) is not None:    # base^{sup}
+            parts.append(f"{_wrap_base(m.group(11))}{_sup(m.group(12))}")
+        elif m.group(13) is not None:    # base^sup (no braces)
+            parts.append(f"{_wrap_base(m.group(13))}{_sup(m.group(14))}")
+        elif m.group(15) is not None:    # ^{sup} alone
+            parts.append(_sup(m.group(15)))
+        elif m.group(16) is not None:    # ^sup alone
+            parts.append(_sup(m.group(16)))
+        elif m.group(17) is not None:    # _{sub} alone
+            parts.append(_sub(m.group(17)))
+        elif m.group(18) is not None:    # _sub alone
+            parts.append(_sub(m.group(18)))
+        elif m.group(19) is not None:    # plain text
+            parts.append(_wrap_base(m.group(19)))
     return "".join(parts)
 
 

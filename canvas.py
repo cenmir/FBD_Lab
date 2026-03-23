@@ -161,6 +161,10 @@ class FBDCanvas(QGraphicsView):
         self._polygon_preview_fill: QGraphicsPolygonItem | None = None
         _POLYGON_CLOSE_DIST = 15  # pixels to snap-close
 
+        # Clipboard for copy/paste
+        self._clipboard: list[tuple[str, dict]] = []  # [(type_key, item_dict), ...]
+        self._last_mouse_scene = QPointF(0, 0)
+
         # Background visibility (separate from item registry)
         self._bg_visible = True
 
@@ -544,6 +548,7 @@ class FBDCanvas(QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
+        self._last_mouse_scene = self.mapToScene(event.pos())
         # Rectangle creation preview
         if self._drawing and self._preview_rect and self._draw_start:
             end = self.mapToScene(event.pos())
@@ -794,7 +799,8 @@ class FBDCanvas(QGraphicsView):
 
     def _find_canvas_item(self, graphics_item):
         """Find the VectorItem/PointItem/DirectionItem/LineItem/MomentItem that owns a graphics item."""
-        if isinstance(graphics_item, (VectorItem, PointItem, DirectionItem, LineItem, MomentItem)):
+        if isinstance(graphics_item, (VectorItem, PointItem, DirectionItem, LineItem,
+                                      MomentItem, RectangleItem, PolygonItem)):
             return graphics_item
         # BaseLabel / BaseControlPoint / Moment handles all use _parent_item
         parent = getattr(graphics_item, '_parent_item', None)
@@ -836,6 +842,22 @@ class FBDCanvas(QGraphicsView):
         else:
             item.z_order = new_z
             self.modified.emit()
+
+    def bring_selected_to_front(self):
+        """Bring the selected item to the front (highest z-order)."""
+        for type_key, cls in self._type_classes.items():
+            item = self._get_selected_item(cls)
+            if item:
+                self._bring_to_front(item)
+                return
+
+    def send_selected_to_back(self):
+        """Send the selected item to the back (lowest z-order)."""
+        for type_key, cls in self._type_classes.items():
+            item = self._get_selected_item(cls)
+            if item:
+                self._send_to_back(item)
+                return
 
     def contextMenuEvent(self, event):
         scene_pos = self.mapToScene(event.pos())
@@ -883,7 +905,16 @@ class FBDCanvas(QGraphicsView):
             self.delete_selected()
             return
 
+        if event.matches(QKeySequence.StandardKey.Copy):
+            self._copy_selected()
+            return
+
         if event.matches(QKeySequence.StandardKey.Paste):
+            # Try pasting diagram items first
+            if self._clipboard:
+                self._paste_at(self._last_mouse_scene)
+                return
+            # Fall back to image paste for background
             clipboard = QApplication.clipboard()
             mime = clipboard.mimeData()
             if mime.hasImage():
@@ -898,3 +929,84 @@ class FBDCanvas(QGraphicsView):
                         self.load_background_from_file(path)
                         return
         super().keyPressEvent(event)
+
+    # --- Copy / Paste ---
+
+    _FROM_DICT = {
+        'vectors': VectorItem.from_dict,
+        'points': PointItem.from_dict,
+        'directions': DirectionItem.from_dict,
+        'lines': LineItem.from_dict,
+        'moments': MomentItem.from_dict,
+        'rectangles': RectangleItem.from_dict,
+        'polygons': PolygonItem.from_dict,
+    }
+
+    @staticmethod
+    def _item_centroid(type_key: str, d: dict) -> QPointF:
+        """Compute the centroid of an item from its serialized dict."""
+        if type_key in ('vectors', 'directions', 'lines'):
+            tx, ty = d["tail"]
+            hx, hy = d["head"]
+            return QPointF((tx + hx) / 2, (ty + hy) / 2)
+        elif type_key == 'points':
+            return QPointF(d["pos"][0], d["pos"][1])
+        else:  # moments, rectangles, polygons
+            return QPointF(d["center"][0], d["center"][1])
+
+    @staticmethod
+    def _offset_item(type_key: str, d: dict, dx: float, dy: float):
+        """Offset all position data in a serialized item dict."""
+        if type_key in ('vectors', 'directions', 'lines'):
+            d["tail"] = [d["tail"][0] + dx, d["tail"][1] + dy]
+            d["head"] = [d["head"][0] + dx, d["head"][1] + dy]
+        elif type_key == 'points':
+            d["pos"] = [d["pos"][0] + dx, d["pos"][1] + dy]
+        else:  # moments, rectangles, polygons
+            d["center"] = [d["center"][0] + dx, d["center"][1] + dy]
+        # Offset label too
+        if "label_offset" in d:
+            d["label_offset"] = list(d["label_offset"])
+
+    def _copy_selected(self):
+        """Copy all selected items to the internal clipboard."""
+        copied = []
+        for type_key, cls in self._type_classes.items():
+            for item in self._scene.selectedItems():
+                if isinstance(item, cls):
+                    copied.append((type_key, item.to_dict()))
+        if copied:
+            self._clipboard = copied
+
+    def _paste_at(self, scene_pos: QPointF):
+        """Paste clipboard items centered at scene_pos."""
+        if not self._clipboard:
+            return
+        import copy
+
+        # Compute centroid of all copied items
+        cx, cy = 0.0, 0.0
+        for type_key, d in self._clipboard:
+            c = self._item_centroid(type_key, d)
+            cx += c.x()
+            cy += c.y()
+        cx /= len(self._clipboard)
+        cy /= len(self._clipboard)
+
+        # Offset to paste position
+        dx = scene_pos.x() - cx
+        dy = scene_pos.y() - cy
+
+        self._scene.clearSelection()
+        for type_key, orig_d in self._clipboard:
+            d = copy.deepcopy(orig_d)
+            self._offset_item(type_key, d, dx, dy)
+            item = self._FROM_DICT[type_key](d)
+            if self._has_undo_stack():
+                cmd = AddItemCommand(self, item, type_key)
+                self._undo_stack.push(cmd)
+            else:
+                self._add_item(type_key, item)
+                self.modified.emit()
+            item.setSelected(True)
+        self.selection_changed.emit()

@@ -165,6 +165,8 @@ def _save_v7(canvas: FBDCanvas, file_path: Path):
             f.write(struct.pack("<I", 0))
 
         # JSON payload with all item data
+        layer_vis = dict(canvas._visibility)
+        layer_vis["background"] = canvas._bg_visible
         data = {
             "arrows": canvas.get_vectors_data(),
             "points": canvas.get_points_data(),
@@ -174,6 +176,7 @@ def _save_v7(canvas: FBDCanvas, file_path: Path):
             "rectangles": canvas.get_rectangles_data(),
             "polygons": canvas.get_polygons_data(),
             "metadata": canvas.metadata.to_dict(),
+            "layer_visibility": layer_vis,
         }
         json_bytes = json.dumps(data, separators=(",", ":")).encode("utf-8")
         f.write(struct.pack("<I", len(json_bytes)))
@@ -232,6 +235,18 @@ def _load_v7(canvas: FBDCanvas, file_path: Path):
         meta_data = data.get("metadata")
         if meta_data:
             canvas.metadata = SessionMetadata.from_dict(meta_data)
+
+        # Restore layer visibility
+        layer_vis = data.get("layer_visibility")
+        if layer_vis:
+            canvas.set_background_visible(layer_vis.get("background", True))
+            canvas.set_vectors_visible(layer_vis.get("vectors", True))
+            canvas.set_points_visible(layer_vis.get("points", True))
+            canvas.set_directions_visible(layer_vis.get("directions", True))
+            canvas.set_lines_visible(layer_vis.get("lines", True))
+            canvas.set_moments_visible(layer_vis.get("moments", True))
+            canvas.set_rectangles_visible(layer_vis.get("rectangles", True))
+            canvas.set_polygons_visible(layer_vis.get("polygons", True))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

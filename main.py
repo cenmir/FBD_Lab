@@ -333,6 +333,18 @@ def main():
             return True
         return False
 
+    def _sync_layer_checkboxes():
+        """Sync layer checkboxes to match the canvas visibility state."""
+        c = window.canvas
+        window.backgroundLayerCheckBox.setChecked(c._bg_visible)
+        window.vectorsLayerCheckBox.setChecked(c._visibility.get('vectors', True))
+        window.pointsLayerCheckBox.setChecked(c._visibility.get('points', True))
+        window.directionsLayerCheckBox.setChecked(c._visibility.get('directions', True))
+        window.linesLayerCheckBox.setChecked(c._visibility.get('lines', True))
+        window.momentsLayerCheckBox.setChecked(c._visibility.get('moments', True))
+        window.rectanglesLayerCheckBox.setChecked(c._visibility.get('rectangles', True))
+        window.polygonsLayerCheckBox.setChecked(c._visibility.get('polygons', True))
+
     def _do_open(file_path):
         """Load a file into the canvas, resetting undo and dirty state."""
         nonlocal current_file
@@ -342,6 +354,7 @@ def main():
         undo_stack.clear()
         mark_clean()
         add_recent_file(file_path)
+        _sync_layer_checkboxes()
 
     def new_file():
         nonlocal current_file
@@ -744,6 +757,14 @@ def main():
 
     # Delete action
     window.actionDelete.triggered.connect(window.canvas.delete_selected)
+
+    # Bring to Front / Send to Back shortcuts (Ctrl+Plus / Ctrl+Minus on numpad)
+    for key in ("Ctrl+]", "Ctrl++"):
+        s = QShortcut(QKeySequence(key), window)
+        s.activated.connect(window.canvas.bring_selected_to_front)
+    for key in ("Ctrl+[", "Ctrl+-"):
+        s = QShortcut(QKeySequence(key), window)
+        s.activated.connect(window.canvas.send_selected_to_back)
 
     # --- Enable drag-to-scrub on all property panel spin boxes ---
     for _sb in [window.startXSpinBox, window.startYSpinBox,
