@@ -344,6 +344,7 @@ def main():
         window.momentsLayerCheckBox.setChecked(c._visibility.get('moments', True))
         window.rectanglesLayerCheckBox.setChecked(c._visibility.get('rectangles', True))
         window.polygonsLayerCheckBox.setChecked(c._visibility.get('polygons', True))
+        window.ellipsesLayerCheckBox.setChecked(c._visibility.get('ellipses', True))
 
     def _do_open(file_path):
         """Load a file into the canvas, resetting undo and dirty state."""
@@ -683,6 +684,12 @@ def main():
         else:
             window.canvas.set_tool(ToolMode.SELECT)
 
+    def on_ellipse_toggle(checked):
+        if checked:
+            window.canvas.set_tool(ToolMode.ELLIPSE)
+        else:
+            window.canvas.set_tool(ToolMode.SELECT)
+
     window.vectorToolButton.toggled.connect(on_vector_toggle)
     window.pointToolButton.toggled.connect(on_point_toggle)
     window.directionToolButton.toggled.connect(on_direction_toggle)
@@ -690,13 +697,14 @@ def main():
     window.momentToolButton.toggled.connect(on_moment_toggle)
     window.rectangleToolButton.toggled.connect(on_rectangle_toggle)
     window.polygonToolButton.toggled.connect(on_polygon_toggle)
+    window.ellipseToolButton.toggled.connect(on_ellipse_toggle)
 
     def on_tool_changed(mode):
         _all_tool_buttons = [
             window.vectorToolButton, window.pointToolButton,
             window.directionToolButton, window.lineToolButton,
             window.momentToolButton, window.rectangleToolButton,
-            window.polygonToolButton,
+            window.polygonToolButton, window.ellipseToolButton,
         ]
         _tool_mode_map = {
             ToolMode.VECTOR: window.vectorToolButton,
@@ -706,6 +714,7 @@ def main():
             ToolMode.MOMENT: window.momentToolButton,
             ToolMode.RECTANGLE: window.rectangleToolButton,
             ToolMode.POLYGON: window.polygonToolButton,
+            ToolMode.ELLIPSE: window.ellipseToolButton,
         }
         for btn in _all_tool_buttons:
             btn.blockSignals(True)
@@ -713,13 +722,14 @@ def main():
             btn.blockSignals(False)
 
         status_msgs = {
-            ToolMode.VECTOR: "Vector creation mode — click and drag to draw",
+            ToolMode.VECTOR: "Force creation mode — click and drag to draw",
             ToolMode.POINT: "Point creation mode — click to place a point",
             ToolMode.DIRECTION: "Direction creation mode — click and drag to draw",
             ToolMode.LINE: "Line creation mode — click and drag to draw",
             ToolMode.MOMENT: "Moment creation mode — click and drag to set center and radius",
             ToolMode.RECTANGLE: "Rectangle creation mode — click and drag to draw",
             ToolMode.POLYGON: "Polygon creation mode — click to add vertices, double-click to finish",
+            ToolMode.ELLIPSE: "Ellipse creation mode — click and drag (CTRL = circle)",
         }
         window.statusbar.showMessage(status_msgs.get(mode, "Ready"))
 
@@ -727,9 +737,9 @@ def main():
     window.statusbar.show()
     window.statusbar.showMessage("Ready")
 
-    # "A" shortcut to toggle vector mode
-    shortcut_a = QShortcut(QKeySequence("A"), window)
-    shortcut_a.activated.connect(lambda: window.vectorToolButton.toggle())
+    # "F" shortcut to toggle force/vector mode
+    shortcut_f = QShortcut(QKeySequence("F"), window)
+    shortcut_f.activated.connect(lambda: window.vectorToolButton.toggle())
 
     # "P" shortcut to toggle point mode
     shortcut_p = QShortcut(QKeySequence("P"), window)
@@ -754,6 +764,10 @@ def main():
     # "G" shortcut to toggle polygon mode
     shortcut_g = QShortcut(QKeySequence("G"), window)
     shortcut_g.activated.connect(lambda: window.polygonToolButton.toggle())
+
+    # "E" shortcut to toggle ellipse mode
+    shortcut_e = QShortcut(QKeySequence("E"), window)
+    shortcut_e.activated.connect(lambda: window.ellipseToolButton.toggle())
 
     # Delete action
     window.actionDelete.triggered.connect(window.canvas.delete_selected)
@@ -1002,10 +1016,11 @@ def main():
             moment = window.canvas.get_selected_moment()
             rect = window.canvas.get_selected_rectangle()
             polygon = window.canvas.get_selected_polygon()
+            ellipse = window.canvas.get_selected_ellipse()
         except RuntimeError:
             return  # scene already destroyed during shutdown
 
-        if vec is None and point is None and direction is None and line is None and moment is None and rect is None and polygon is None:
+        if vec is None and point is None and direction is None and line is None and moment is None and rect is None and polygon is None and ellipse is None:
             window.propertiesGroupBox.setVisible(False)
             return
 
@@ -1099,8 +1114,8 @@ def main():
             _set_button_color(_item_color_btn, color_item.item_color)
             _item_opacity_spin.setValue(color_item.item_opacity)
 
-        # Shape style panel (rectangle or polygon)
-        shape = rect or polygon
+        # Shape style panel (rectangle, polygon, or ellipse)
+        shape = rect or polygon or ellipse
         if shape is not None:
             for w in _shape_style_widgets:
                 w.setVisible(True)
@@ -1131,6 +1146,12 @@ def main():
                 for w in _cs_label_widgets:
                     w.setVisible(False)
 
+        # Ellipse angle (reuse the angle spinbox)
+        if ellipse is not None:
+            _rect_angle_label.setVisible(True)
+            _rect_angle_spin.setVisible(True)
+            _rect_angle_spin.setValue(ellipse.angle_ccw)
+
         _updating_panel = False
 
     window.propertiesGroupBox.setVisible(False)
@@ -1141,14 +1162,15 @@ def main():
     # --- Properties panel write-back ---
 
     def _get_selected_item():
-        """Return the selected vector, direction, line, point, moment, rectangle, or polygon."""
+        """Return the selected vector, direction, line, point, moment, rectangle, polygon, or ellipse."""
         return (window.canvas.get_selected_vector()
                 or window.canvas.get_selected_direction()
                 or window.canvas.get_selected_line()
                 or window.canvas.get_selected_point()
                 or window.canvas.get_selected_moment()
                 or window.canvas.get_selected_rectangle()
-                or window.canvas.get_selected_polygon())
+                or window.canvas.get_selected_polygon()
+                or window.canvas.get_selected_ellipse())
 
     def _get_selected_line_item():
         """Return the selected vector, direction, or line (items with tail/head)."""
@@ -1453,9 +1475,10 @@ def main():
         undo_stack.push(cmd)
 
     def _get_selected_shape():
-        """Return the selected rectangle or polygon."""
+        """Return the selected rectangle, polygon, or ellipse."""
         return (window.canvas.get_selected_rectangle()
-                or window.canvas.get_selected_polygon())
+                or window.canvas.get_selected_polygon()
+                or window.canvas.get_selected_ellipse())
 
     def on_fill_color_clicked():
         if _updating_panel:
@@ -1576,15 +1599,15 @@ def main():
     def on_rect_angle_changed(val):
         if _updating_panel:
             return
-        rect = window.canvas.get_selected_rectangle()
-        if rect is None:
+        item = window.canvas.get_selected_rectangle() or window.canvas.get_selected_ellipse()
+        if item is None:
             return
-        if abs(val - rect.angle_ccw) < 0.05:
+        if abs(val - item.angle_ccw) < 0.05:
             return
-        old_rotation = rect.rotation()
+        old_rotation = item.rotation()
         new_rotation = -val  # CCW display → CW internal
-        rect.setRotation(old_rotation)  # revert for consistent redo
-        cmd = ChangeRotationCommand(rect, old_rotation, new_rotation)
+        item.setRotation(old_rotation)  # revert for consistent redo
+        cmd = ChangeRotationCommand(item, old_rotation, new_rotation)
         undo_stack.push(cmd)
 
     def on_show_cog_toggled(checked):
@@ -1708,6 +1731,7 @@ def main():
     window.momentsLayerCheckBox.toggled.connect(window.canvas.set_moments_visible)
     window.rectanglesLayerCheckBox.toggled.connect(window.canvas.set_rectangles_visible)
     window.polygonsLayerCheckBox.toggled.connect(window.canvas.set_polygons_visible)
+    window.ellipsesLayerCheckBox.toggled.connect(window.canvas.set_ellipses_visible)
 
     # Sync panel after undo/redo and modifications (e.g. drag) so it reflects current state
     undo_stack.indexChanged.connect(lambda _: sync_panel())

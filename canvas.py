@@ -22,6 +22,7 @@ from line_item import LineItem
 from moment_item import MomentItem
 from rectangle_item import RectangleItem
 from polygon_item import PolygonItem
+from ellipse_item import EllipseItem
 from commands import (
     AddItemCommand, DeleteItemCommand, MoveItemCommand,
     ChangeRadiusCommand, ChangeZValueCommand,
@@ -77,6 +78,7 @@ class ToolMode(Enum):
     MOMENT = auto()
     RECTANGLE = auto()
     POLYGON = auto()
+    ELLIPSE = auto()
 
 
 class FBDCanvas(QGraphicsView):
@@ -111,6 +113,7 @@ class FBDCanvas(QGraphicsView):
             'moments': [],
             'rectangles': [],
             'polygons': [],
+            'ellipses': [],
         }
         self._visibility: dict[str, bool] = {
             'vectors': True,
@@ -120,6 +123,7 @@ class FBDCanvas(QGraphicsView):
             'moments': True,
             'rectangles': True,
             'polygons': True,
+            'ellipses': True,
         }
         self._type_classes: dict[str, type] = {
             'vectors': VectorItem,
@@ -129,6 +133,7 @@ class FBDCanvas(QGraphicsView):
             'moments': MomentItem,
             'rectangles': RectangleItem,
             'polygons': PolygonItem,
+            'ellipses': EllipseItem,
         }
 
         # Session metadata
@@ -152,6 +157,9 @@ class FBDCanvas(QGraphicsView):
 
         # Rectangle preview (QGraphicsRectItem instead of line)
         self._preview_rect: QGraphicsRectItem | None = None
+
+        # Ellipse preview
+        self._preview_ellipse: QGraphicsEllipseItem | None = None
 
         # Polygon creation state
         self._polygon_vertices: list[QPointF] = []
@@ -389,6 +397,13 @@ class FBDCanvas(QGraphicsView):
     def get_selected_polygon(self):     return self._get_selected_item(PolygonItem)
     def clear_polygons(self):           self._clear_items('polygons')
 
+    def add_ellipse(self, e):           self._add_item('ellipses', e)
+    def remove_ellipse(self, e):        self._remove_item('ellipses', e)
+    def get_ellipses(self):             return self._get_items('ellipses')
+    def get_ellipses_data(self):        return self._get_items_data('ellipses')
+    def get_selected_ellipse(self):     return self._get_selected_item(EllipseItem)
+    def clear_ellipses(self):           self._clear_items('ellipses')
+
     # --- Layer visibility ---
 
     def set_background_visible(self, visible: bool):
@@ -403,6 +418,7 @@ class FBDCanvas(QGraphicsView):
     def set_moments_visible(self, visible):     self._set_type_visible('moments', visible)
     def set_rectangles_visible(self, visible):  self._set_type_visible('rectangles', visible)
     def set_polygons_visible(self, visible):    self._set_type_visible('polygons', visible)
+    def set_ellipses_visible(self, visible):   self._set_type_visible('ellipses', visible)
 
     # --- Snapping ---
 
@@ -482,6 +498,17 @@ class FBDCanvas(QGraphicsView):
                 self._scene.addItem(self._preview_rect)
                 return
 
+            # Ellipse creation mode (click-drag: bounding box corners, CTRL = circle)
+            if self._tool == ToolMode.ELLIPSE:
+                self._drawing = True
+                self._draw_start = self.mapToScene(event.pos())
+                self._preview_ellipse = QGraphicsEllipseItem()
+                self._preview_ellipse.setPen(QPen(QColor(0x4A, 0x90, 0xA8, 200), 2, Qt.PenStyle.DashLine))
+                self._preview_ellipse.setBrush(QBrush(QColor(0xA8, 0xD8, 0xEA, 100)))
+                self._preview_ellipse.setZValue(100)
+                self._scene.addItem(self._preview_ellipse)
+                return
+
             # Polygon creation mode (click to add vertices, click near first to close)
             if self._tool == ToolMode.POLYGON:
                 scene_pos = self.mapToScene(event.pos())
@@ -536,7 +563,7 @@ class FBDCanvas(QGraphicsView):
                         self._scene.clearSelection()
                         item.setSelected(True)
                     return
-                if isinstance(item, (VectorItem, PointItem, DirectionItem, LineItem, RectangleItem, PolygonItem)):
+                if isinstance(item, (VectorItem, PointItem, DirectionItem, LineItem, RectangleItem, PolygonItem, EllipseItem)):
                     self._dragging_item = item
                     self._drag_anchor = item.drag_anchor()
                     self._drag_last = scene_pos
@@ -557,6 +584,20 @@ class FBDCanvas(QGraphicsView):
             w = abs(end.x() - self._draw_start.x())
             h = abs(end.y() - self._draw_start.y())
             self._preview_rect.setRect(x1, y1, w, h)
+            return
+
+        # Ellipse creation preview
+        if self._drawing and self._preview_ellipse and self._draw_start:
+            end = self.mapToScene(event.pos())
+            w = abs(end.x() - self._draw_start.x())
+            h = abs(end.y() - self._draw_start.y())
+            # CTRL = force circle
+            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                size = max(w, h)
+                w = h = size
+            x1 = min(self._draw_start.x(), self._draw_start.x() + (w if end.x() >= self._draw_start.x() else -w))
+            y1 = min(self._draw_start.y(), self._draw_start.y() + (h if end.y() >= self._draw_start.y() else -h))
+            self._preview_ellipse.setRect(x1, y1, w, h)
             return
 
         # Vector/Direction/Line/Moment creation preview (line)
@@ -653,6 +694,9 @@ class FBDCanvas(QGraphicsView):
                 if self._preview_rect:
                     self._scene.removeItem(self._preview_rect)
                     self._preview_rect = None
+                if self._preview_ellipse:
+                    self._scene.removeItem(self._preview_ellipse)
+                    self._preview_ellipse = None
 
                 if self._draw_start:
                     dx = end.x() - self._draw_start.x()
@@ -695,6 +739,25 @@ class FBDCanvas(QGraphicsView):
                                 self.modified.emit()
                             self._scene.clearSelection()
                             rect.setSelected(True)
+                        elif creating_tool == ToolMode.ELLIPSE:
+                            # CTRL = force circle
+                            w = abs(end.x() - self._draw_start.x())
+                            h = abs(end.y() - self._draw_start.y())
+                            if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+                                size = max(w, h)
+                                sx = 1 if end.x() >= self._draw_start.x() else -1
+                                sy = 1 if end.y() >= self._draw_start.y() else -1
+                                end = QPointF(self._draw_start.x() + size * sx,
+                                              self._draw_start.y() + size * sy)
+                            ell = EllipseItem(self._draw_start, end)
+                            if self._has_undo_stack():
+                                cmd = AddItemCommand(self, ell, 'ellipses')
+                                self._undo_stack.push(cmd)
+                            else:
+                                self.add_ellipse(ell)
+                                self.modified.emit()
+                            self._scene.clearSelection()
+                            ell.setSelected(True)
                         elif creating_tool == ToolMode.LINE:
                             ln = LineItem(self._draw_start, end)
                             if self._has_undo_stack():
@@ -800,7 +863,7 @@ class FBDCanvas(QGraphicsView):
     def _find_canvas_item(self, graphics_item):
         """Find the VectorItem/PointItem/DirectionItem/LineItem/MomentItem that owns a graphics item."""
         if isinstance(graphics_item, (VectorItem, PointItem, DirectionItem, LineItem,
-                                      MomentItem, RectangleItem, PolygonItem)):
+                                      MomentItem, RectangleItem, PolygonItem, EllipseItem)):
             return graphics_item
         # BaseLabel / BaseControlPoint / Moment handles all use _parent_item
         parent = getattr(graphics_item, '_parent_item', None)
@@ -940,6 +1003,7 @@ class FBDCanvas(QGraphicsView):
         'moments': MomentItem.from_dict,
         'rectangles': RectangleItem.from_dict,
         'polygons': PolygonItem.from_dict,
+        'ellipses': EllipseItem.from_dict,
     }
 
     @staticmethod
