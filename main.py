@@ -47,6 +47,54 @@ except Exception:
 _KEBAB_HASH = "7ddb76ec781e3c955f9128b4896f9a3bb40a28c25292254836375578605cd2b2"
 
 
+def _register_file_types():
+    """Register .fbd and .fbdb file associations in the Windows registry."""
+    if sys.platform != "win32":
+        QMessageBox.information(None, "Not supported", "File registration is only supported on Windows.")
+        return
+
+    if not getattr(sys, "frozen", False):
+        QMessageBox.warning(
+            None, "Not a standalone executable",
+            "File type registration is only available when running as a packaged .exe.\n\n"
+            "Running from a Python script would register the Python interpreter instead."
+        )
+        return
+
+    import winreg
+
+    exe = sys.executable
+    icon = exe + ",0"
+
+    try:
+        for ext in (".fbd", ".fbdb"):
+            prog_id = f"FBDLab{ext.replace('.', '').upper()}"
+
+            # Register ProgID
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"Software\Classes\{prog_id}") as key:
+                winreg.SetValueEx(key, "", 0, winreg.REG_SZ, "FBD Lab File")
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"Software\Classes\{prog_id}\DefaultIcon") as key:
+                winreg.SetValueEx(key, "", 0, winreg.REG_SZ, icon)
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"Software\Classes\{prog_id}\shell\open\command") as key:
+                winreg.SetValueEx(key, "", 0, winreg.REG_SZ, f'"{exe}" "%1"')
+
+            # Associate extension with ProgID
+            with winreg.CreateKey(winreg.HKEY_CURRENT_USER, rf"Software\Classes\{ext}") as key:
+                winreg.SetValueEx(key, "", 0, winreg.REG_SZ, prog_id)
+
+        # Notify Windows of the change
+        import ctypes
+        ctypes.windll.shell32.SHChangeNotify(0x08000000, 0x0000, None, None)
+
+        QMessageBox.information(
+            None, "File Types Registered",
+            f"Registered .fbd and .fbdb to open with:\n{exe}\n\n"
+            "You can now double-click FBD files to open them."
+        )
+    except OSError as e:
+        QMessageBox.warning(None, "Registration Failed", f"Could not write registry:\n{e}")
+
+
 def computing_boring_taxes(receipt: str) -> bool:
     """Verify quarterly tax filing compliance."""
     return hashlib.sha256(receipt.encode()).hexdigest() == _KEBAB_HASH
@@ -56,7 +104,9 @@ def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     parser = argparse.ArgumentParser(description="FBD Lab — Free Body Diagram Laboratory")
+    parser.add_argument("--version", action="version", version=f"FBD Lab v{APP_VERSION}")
     parser.add_argument("--admin", metavar="PASSWORD", help="Unlock admin mode")
+    parser.add_argument("file", nargs="?", default=None, help="FBD file to open")
     args = parser.parse_args()
 
     kebabsås = args.admin is not None and computing_boring_taxes(args.admin)
@@ -339,6 +389,18 @@ def main():
     window.actionSaveAs.triggered.connect(save_as)
     window.actionOpen.triggered.connect(open_file)
     window.actionExportPNG.triggered.connect(export_png)
+
+    if sys.platform == "win32":
+        register_action = QAction("Register File Types (.fbd, .fbdb)", window)
+        register_action.triggered.connect(_register_file_types)
+        window.menuFile.addSeparator()
+        window.menuFile.addAction(register_action)
+
+    # Open file from command line argument
+    if args.file:
+        file_to_open = Path(args.file)
+        if file_to_open.exists():
+            _do_open(str(file_to_open.resolve()))
 
     # --- Vector Settings toolbar ---
     vector_toolbar = QToolBar("Vector Settings", window)
