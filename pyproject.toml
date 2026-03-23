@@ -8,5 +8,8 @@ dependencies = [
     "PyQt6",
 ]
 
+[tool.uv]
+link-mode = "copy"
+
 [project.scripts]
 fbd-lab = "main:main"
