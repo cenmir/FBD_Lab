@@ -17,6 +17,8 @@ from rectangle_item import RectangleItem
 from polygon_item import PolygonItem
 from ellipse_item import EllipseItem
 from text_item import TextItem
+from spring_item import SpringItem
+from squiggle_item import SquiggleItem
 
 # --- Current format ---
 MAGIC_HEADER_V7_JSON = b"FBDB_v7\x00\x00\x00"  # 10 bytes, hybrid binary+JSON
@@ -179,6 +181,8 @@ def _save_v7(canvas: FBDCanvas, file_path: Path):
             "polygons": canvas.get_polygons_data(),
             "ellipses": canvas.get_ellipses_data(),
             "texts": canvas.get_texts_data(),
+            "springs": canvas.get_springs_data(),
+            "squiggles": canvas.get_squiggles_data(),
             "metadata": canvas.metadata.to_dict(),
             "layer_visibility": layer_vis,
         }
@@ -239,6 +243,10 @@ def _load_v7(canvas: FBDCanvas, file_path: Path):
             canvas.add_ellipse(EllipseItem.from_dict(ell_data))
         for txt_data in data.get("texts", []):
             canvas.add_text(TextItem.from_dict(txt_data))
+        for spr_data in data.get("springs", []):
+            canvas.add_spring(SpringItem.from_dict(spr_data))
+        for sq_data in data.get("squiggles", []):
+            canvas.add_squiggle(SquiggleItem.from_dict(sq_data))
 
         meta_data = data.get("metadata")
         if meta_data:
@@ -257,6 +265,8 @@ def _load_v7(canvas: FBDCanvas, file_path: Path):
             canvas.set_polygons_visible(layer_vis.get("polygons", True))
             canvas.set_ellipses_visible(layer_vis.get("ellipses", True))
             canvas.set_texts_visible(layer_vis.get("texts", True))
+            canvas.set_springs_visible(layer_vis.get("springs", True))
+            canvas.set_squiggles_visible(layer_vis.get("squiggles", True))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -276,6 +286,8 @@ def _load_legacy_json(canvas: FBDCanvas, file_path: Path):
     canvas.clear_polygons()
     canvas.clear_ellipses()
     canvas.clear_texts()
+    canvas.clear_springs()
+    canvas.clear_squiggles()
 
     bg_data = data.get("background_image")
     if bg_data:
@@ -301,6 +313,10 @@ def _load_legacy_json(canvas: FBDCanvas, file_path: Path):
         canvas.add_ellipse(EllipseItem.from_dict(ell_data))
     for txt_data in data.get("texts", []):
         canvas.add_text(TextItem.from_dict(txt_data))
+    for spr_data in data.get("springs", []):
+        canvas.add_spring(SpringItem.from_dict(spr_data))
+    for sq_data in data.get("squiggles", []):
+        canvas.add_squiggle(SquiggleItem.from_dict(sq_data))
 
     meta_data = data.get("metadata")
     if meta_data:
@@ -343,6 +359,8 @@ def _load_legacy_binary(canvas: FBDCanvas, file_path: Path):
         canvas.clear_polygons()
         canvas.clear_ellipses()
         canvas.clear_texts()
+        canvas.clear_springs()
+        canvas.clear_squiggles()
 
         # Background image
         img_len = struct.unpack("<I", _read_exact(f, 4))[0]

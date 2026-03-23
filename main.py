@@ -346,6 +346,8 @@ def main():
         window.polygonsLayerCheckBox.setChecked(c._visibility.get('polygons', True))
         window.ellipsesLayerCheckBox.setChecked(c._visibility.get('ellipses', True))
         window.textsLayerCheckBox.setChecked(c._visibility.get('texts', True))
+        window.springsLayerCheckBox.setChecked(c._visibility.get('springs', True))
+        window.squigglesLayerCheckBox.setChecked(c._visibility.get('squiggles', True))
 
     def _do_open(file_path):
         """Load a file into the canvas, resetting undo and dirty state."""
@@ -697,6 +699,18 @@ def main():
         else:
             window.canvas.set_tool(ToolMode.SELECT)
 
+    def on_spring_toggle(checked):
+        if checked:
+            window.canvas.set_tool(ToolMode.SPRING)
+        else:
+            window.canvas.set_tool(ToolMode.SELECT)
+
+    def on_squiggle_toggle(checked):
+        if checked:
+            window.canvas.set_tool(ToolMode.SQUIGGLE)
+        else:
+            window.canvas.set_tool(ToolMode.SELECT)
+
     window.vectorToolButton.toggled.connect(on_vector_toggle)
     window.pointToolButton.toggled.connect(on_point_toggle)
     window.directionToolButton.toggled.connect(on_direction_toggle)
@@ -706,6 +720,8 @@ def main():
     window.polygonToolButton.toggled.connect(on_polygon_toggle)
     window.ellipseToolButton.toggled.connect(on_ellipse_toggle)
     window.textToolButton.toggled.connect(on_text_toggle)
+    window.springToolButton.toggled.connect(on_spring_toggle)
+    window.squiggleToolButton.toggled.connect(on_squiggle_toggle)
 
     def on_tool_changed(mode):
         _all_tool_buttons = [
@@ -713,7 +729,8 @@ def main():
             window.directionToolButton, window.lineToolButton,
             window.momentToolButton, window.rectangleToolButton,
             window.polygonToolButton, window.ellipseToolButton,
-            window.textToolButton,
+            window.textToolButton, window.springToolButton,
+            window.squiggleToolButton,
         ]
         _tool_mode_map = {
             ToolMode.VECTOR: window.vectorToolButton,
@@ -725,6 +742,8 @@ def main():
             ToolMode.POLYGON: window.polygonToolButton,
             ToolMode.ELLIPSE: window.ellipseToolButton,
             ToolMode.TEXT: window.textToolButton,
+            ToolMode.SPRING: window.springToolButton,
+            ToolMode.SQUIGGLE: window.squiggleToolButton,
         }
         for btn in _all_tool_buttons:
             btn.blockSignals(True)
@@ -741,6 +760,8 @@ def main():
             ToolMode.POLYGON: "Polygon creation mode — click to add vertices, double-click to finish",
             ToolMode.ELLIPSE: "Ellipse creation mode — click and drag (CTRL = circle)",
             ToolMode.TEXT: "Text creation mode — click to place text",
+            ToolMode.SPRING: "Spring creation mode — click and drag to draw",
+            ToolMode.SQUIGGLE: "Squiggle creation mode — click and drag to draw",
         }
         window.statusbar.showMessage(status_msgs.get(mode, "Ready"))
 
@@ -783,6 +804,14 @@ def main():
     # "T" shortcut to toggle text mode
     shortcut_t = QShortcut(QKeySequence("T"), window)
     shortcut_t.activated.connect(lambda: window.textToolButton.toggle())
+
+    # "S" shortcut to toggle spring mode
+    shortcut_s = QShortcut(QKeySequence("S"), window)
+    shortcut_s.activated.connect(lambda: window.springToolButton.toggle())
+
+    # "W" shortcut to toggle squiggle mode
+    shortcut_w = QShortcut(QKeySequence("W"), window)
+    shortcut_w.activated.connect(lambda: window.squiggleToolButton.toggle())
 
     # Delete action
     window.actionDelete.triggered.connect(window.canvas.delete_selected)
@@ -1035,6 +1064,40 @@ def main():
         _line_arrow_head_label, _line_arrow_head_check,
         _line_dashed_label, _line_dashed_check,
     ]
+    # Spring-specific widgets
+    _spring_coils_label = QLabel("Coils:")
+    _spring_coils_spin = QSpinBox()
+    _spring_coils_spin.setRange(1, 20)
+    _spring_coils_spin.setValue(2)
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _spring_coils_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _spring_coils_spin)
+
+    _spring_amplitude_label = QLabel("Amplitude:")
+    _spring_amplitude_spin = QSpinBox()
+    _spring_amplitude_spin.setRange(1, 100)
+    _spring_amplitude_spin.setValue(20)
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _spring_amplitude_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _spring_amplitude_spin)
+
+    _spring_thickness_label = QLabel("Thickness:")
+    _spring_thickness_spin = QSpinBox()
+    _spring_thickness_spin.setRange(1, 20)
+    _spring_thickness_spin.setValue(2)
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _spring_thickness_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _spring_thickness_spin)
+
+    for _sb in [_spring_coils_spin, _spring_amplitude_spin, _spring_thickness_spin]:
+        _sb.installEventFilter(SpinDragFilter(_sb))
+
+    _spring_only_widgets = [
+        _spring_coils_label, _spring_coils_spin,
+        _spring_amplitude_label, _spring_amplitude_spin,
+        _spring_thickness_label, _spring_thickness_spin,
+    ]
+
     _reverse_moment_label = QLabel("Reverse:")
     _reverse_moment_check = QCheckBox()
     next_row = _form.rowCount()
@@ -1065,7 +1128,10 @@ def main():
         except RuntimeError:
             return  # scene already destroyed during shutdown
 
-        if vec is None and point is None and direction is None and line is None and moment is None and rect is None and polygon is None and ellipse is None and text is None:
+        spring = window.canvas.get_selected_spring()
+        squiggle = window.canvas.get_selected_squiggle()
+
+        if vec is None and point is None and direction is None and line is None and moment is None and rect is None and polygon is None and ellipse is None and text is None and spring is None and squiggle is None:
             window.propertiesGroupBox.setVisible(False)
             return
 
@@ -1073,7 +1139,7 @@ def main():
         _updating_panel = True
 
         # Hide all conditional widget groups first
-        for w in _start_end_widgets + _magnitude_widgets + _point_only_widgets + _direction_only_widgets + _line_only_widgets + _moment_only_widgets + _item_color_widgets + _shape_style_widgets + _rect_only_widgets + [_label_bg_label, _label_bg_check]:
+        for w in _start_end_widgets + _magnitude_widgets + _point_only_widgets + _direction_only_widgets + _line_only_widgets + _spring_only_widgets + _moment_only_widgets + _item_color_widgets + _shape_style_widgets + _rect_only_widgets + [_label_bg_label, _label_bg_check]:
             w.setVisible(False)
 
         if vec is not None:
@@ -1154,8 +1220,42 @@ def main():
             window.boldButton.setChecked(moment.label_bold)
             window.italicButton.setChecked(moment.label_italic)
 
-        # Item color/opacity (for vector, direction, point, moment, text)
-        color_item = vec or direction or point or moment or text
+        # Spring properties
+        if spring is not None:
+            for w in _start_end_widgets + _spring_only_widgets:
+                w.setVisible(True)
+            window.startXSpinBox.setValue(spring.tail.x())
+            window.startYSpinBox.setValue(spring.tail.y())
+            window.endXSpinBox.setValue(spring.head.x())
+            window.endYSpinBox.setValue(spring.head.y())
+            _spring_coils_spin.setValue(spring.coils)
+            _spring_amplitude_spin.setValue(int(spring.amplitude))
+            _spring_thickness_spin.setValue(spring.thickness)
+            window.showLabelCheckBox.setChecked(spring.label_visible)
+            window.labelTextLineEdit.setText(spring.label_text)
+            window.fontSizeSpinBox.setValue(spring.font_size)
+            window.boldButton.setChecked(spring.label_bold)
+            window.italicButton.setChecked(spring.label_italic)
+
+        # Squiggle properties (shares spring property widgets)
+        if squiggle is not None:
+            for w in _start_end_widgets + _spring_only_widgets:
+                w.setVisible(True)
+            window.startXSpinBox.setValue(squiggle.tail.x())
+            window.startYSpinBox.setValue(squiggle.tail.y())
+            window.endXSpinBox.setValue(squiggle.head.x())
+            window.endYSpinBox.setValue(squiggle.head.y())
+            _spring_coils_spin.setValue(int(squiggle.waves))
+            _spring_amplitude_spin.setValue(int(squiggle.amplitude))
+            _spring_thickness_spin.setValue(squiggle.thickness)
+            window.showLabelCheckBox.setChecked(squiggle.label_visible)
+            window.labelTextLineEdit.setText(squiggle.label_text)
+            window.fontSizeSpinBox.setValue(squiggle.font_size)
+            window.boldButton.setChecked(squiggle.label_bold)
+            window.italicButton.setChecked(squiggle.label_italic)
+
+        # Item color/opacity (for vector, direction, point, moment, text, spring, squiggle)
+        color_item = vec or direction or point or moment or text or spring or squiggle
         if color_item is not None:
             for w in _item_color_widgets:
                 w.setVisible(True)
@@ -1234,13 +1334,17 @@ def main():
                 or window.canvas.get_selected_rectangle()
                 or window.canvas.get_selected_polygon()
                 or window.canvas.get_selected_ellipse()
-                or window.canvas.get_selected_text())
+                or window.canvas.get_selected_text()
+                or window.canvas.get_selected_spring()
+                or window.canvas.get_selected_squiggle())
 
     def _get_selected_line_item():
-        """Return the selected vector, direction, or line (items with tail/head)."""
+        """Return the selected vector, direction, line, spring, or squiggle (items with tail/head)."""
         return (window.canvas.get_selected_vector()
                 or window.canvas.get_selected_direction()
-                or window.canvas.get_selected_line())
+                or window.canvas.get_selected_line()
+                or window.canvas.get_selected_spring()
+                or window.canvas.get_selected_squiggle())
 
     def _push_resize(item, old_tail, old_head, new_tail, new_head):
         """Push a resize command, reverting item first for consistent redo."""
@@ -1620,7 +1724,9 @@ def main():
                 or window.canvas.get_selected_direction()
                 or window.canvas.get_selected_point()
                 or window.canvas.get_selected_moment()
-                or window.canvas.get_selected_text())
+                or window.canvas.get_selected_text()
+                or window.canvas.get_selected_spring()
+                or window.canvas.get_selected_squiggle())
 
     def on_item_color_clicked():
         if _updating_panel:
@@ -1786,6 +1892,27 @@ def main():
     _line_arrow_head_check.toggled.connect(_line_bool_handler("show_arrow_head", "Toggle Head Arrow"))
     _line_dashed_check.toggled.connect(_line_bool_handler("dashed", "Toggle Dashed"))
 
+    def _spring_prop_handler(prop_name, sq_prop_name, description):
+        def handler(val):
+            if _updating_panel:
+                return
+            item = window.canvas.get_selected_spring() or window.canvas.get_selected_squiggle()
+            if item is None:
+                return
+            # Use sq_prop_name for squiggles (e.g. "waves" instead of "coils")
+            actual_prop = sq_prop_name if isinstance(item, __import__('squiggle_item', fromlist=['SquiggleItem']).SquiggleItem) else prop_name
+            if val == getattr(item, actual_prop):
+                return
+            old_val = getattr(item, actual_prop)
+            setattr(item, actual_prop, old_val)
+            cmd = ChangeShapePropertyCommand(item, actual_prop, old_val, val, description)
+            undo_stack.push(cmd)
+        return handler
+
+    _spring_coils_spin.valueChanged.connect(_spring_prop_handler("coils", "waves", "Change Coils/Waves"))
+    _spring_amplitude_spin.valueChanged.connect(_spring_prop_handler("amplitude", "amplitude", "Change Amplitude"))
+    _spring_thickness_spin.valueChanged.connect(_spring_prop_handler("thickness", "thickness", "Change Thickness"))
+
     def on_label_bg_toggled(checked):
         if _updating_panel:
             return
@@ -1833,6 +1960,8 @@ def main():
     window.polygonsLayerCheckBox.toggled.connect(window.canvas.set_polygons_visible)
     window.ellipsesLayerCheckBox.toggled.connect(window.canvas.set_ellipses_visible)
     window.textsLayerCheckBox.toggled.connect(window.canvas.set_texts_visible)
+    window.springsLayerCheckBox.toggled.connect(window.canvas.set_springs_visible)
+    window.squigglesLayerCheckBox.toggled.connect(window.canvas.set_squiggles_visible)
 
     # Sync panel after undo/redo and modifications (e.g. drag) so it reflects current state
     undo_stack.indexChanged.connect(lambda _: sync_panel())

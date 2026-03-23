@@ -145,6 +145,26 @@
             </widget>
            </item>
            <item row="4" column="0">
+            <widget class="QPushButton" name="springToolButton">
+             <property name="text">
+              <string>Create Spring (S)</string>
+             </property>
+             <property name="checkable">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="4" column="1">
+            <widget class="QPushButton" name="squiggleToolButton">
+             <property name="text">
+              <string>Create Squiggle (W)</string>
+             </property>
+             <property name="checkable">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item row="5" column="0">
             <widget class="QPushButton" name="ellipseToolButton">
              <property name="text">
               <string>Create Ellipse (E)</string>
@@ -247,6 +267,26 @@
             <widget class="QCheckBox" name="textsLayerCheckBox">
              <property name="text">
               <string>Texts</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="squigglesLayerCheckBox">
+             <property name="text">
+              <string>Squiggles</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="springsLayerCheckBox">
+             <property name="text">
+              <string>Springs</string>
              </property>
              <property name="checked">
               <bool>true</bool>

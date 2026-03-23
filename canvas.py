@@ -24,6 +24,8 @@ from rectangle_item import RectangleItem
 from polygon_item import PolygonItem
 from ellipse_item import EllipseItem
 from text_item import TextItem
+from spring_item import SpringItem
+from squiggle_item import SquiggleItem
 from commands import (
     AddItemCommand, DeleteItemCommand, MoveItemCommand,
     ChangeRadiusCommand, ChangeZValueCommand,
@@ -81,6 +83,8 @@ class ToolMode(Enum):
     POLYGON = auto()
     ELLIPSE = auto()
     TEXT = auto()
+    SPRING = auto()
+    SQUIGGLE = auto()
 
 
 class FBDCanvas(QGraphicsView):
@@ -117,6 +121,8 @@ class FBDCanvas(QGraphicsView):
             'polygons': [],
             'ellipses': [],
             'texts': [],
+            'springs': [],
+            'squiggles': [],
         }
         self._visibility: dict[str, bool] = {
             'vectors': True,
@@ -128,6 +134,8 @@ class FBDCanvas(QGraphicsView):
             'polygons': True,
             'ellipses': True,
             'texts': True,
+            'springs': True,
+            'squiggles': True,
         }
         self._type_classes: dict[str, type] = {
             'vectors': VectorItem,
@@ -139,6 +147,8 @@ class FBDCanvas(QGraphicsView):
             'polygons': PolygonItem,
             'ellipses': EllipseItem,
             'texts': TextItem,
+            'springs': SpringItem,
+            'squiggles': SquiggleItem,
         }
 
         # Session metadata
@@ -416,6 +426,20 @@ class FBDCanvas(QGraphicsView):
     def get_selected_text(self):        return self._get_selected_item(TextItem)
     def clear_texts(self):              self._clear_items('texts')
 
+    def add_spring(self, s):            self._add_item('springs', s)
+    def remove_spring(self, s):         self._remove_item('springs', s)
+    def get_springs(self):              return self._get_items('springs')
+    def get_springs_data(self):         return self._get_items_data('springs')
+    def get_selected_spring(self):      return self._get_selected_item(SpringItem)
+    def clear_springs(self):            self._clear_items('springs')
+
+    def add_squiggle(self, s):          self._add_item('squiggles', s)
+    def remove_squiggle(self, s):       self._remove_item('squiggles', s)
+    def get_squiggles(self):            return self._get_items('squiggles')
+    def get_squiggles_data(self):       return self._get_items_data('squiggles')
+    def get_selected_squiggle(self):    return self._get_selected_item(SquiggleItem)
+    def clear_squiggles(self):          self._clear_items('squiggles')
+
     # --- Layer visibility ---
 
     def set_background_visible(self, visible: bool):
@@ -432,6 +456,8 @@ class FBDCanvas(QGraphicsView):
     def set_polygons_visible(self, visible):    self._set_type_visible('polygons', visible)
     def set_ellipses_visible(self, visible):   self._set_type_visible('ellipses', visible)
     def set_texts_visible(self, visible):      self._set_type_visible('texts', visible)
+    def set_springs_visible(self, visible):    self._set_type_visible('springs', visible)
+    def set_squiggles_visible(self, visible):  self._set_type_visible('squiggles', visible)
 
     # --- Snapping ---
 
@@ -472,6 +498,26 @@ class FBDCanvas(QGraphicsView):
 
             # Direction creation mode (same click-drag as vector)
             if self._tool == ToolMode.DIRECTION:
+                self._drawing = True
+                self._draw_start = self.mapToScene(event.pos())
+                self._preview_line = QGraphicsLineItem()
+                self._preview_line.setPen(QPen(QColor(0, 0, 0, 180), 2, Qt.PenStyle.DashLine))
+                self._preview_line.setZValue(100)
+                self._scene.addItem(self._preview_line)
+                return
+
+            # Spring creation mode (click-drag like vector)
+            if self._tool == ToolMode.SPRING:
+                self._drawing = True
+                self._draw_start = self.mapToScene(event.pos())
+                self._preview_line = QGraphicsLineItem()
+                self._preview_line.setPen(QPen(QColor(0, 0, 0, 180), 2, Qt.PenStyle.DashLine))
+                self._preview_line.setZValue(100)
+                self._scene.addItem(self._preview_line)
+                return
+
+            # Squiggle/denotation line mode (click-drag)
+            if self._tool == ToolMode.SQUIGGLE:
                 self._drawing = True
                 self._draw_start = self.mapToScene(event.pos())
                 self._preview_line = QGraphicsLineItem()
@@ -592,7 +638,7 @@ class FBDCanvas(QGraphicsView):
                         self._scene.clearSelection()
                         item.setSelected(True)
                     return
-                if isinstance(item, (VectorItem, PointItem, DirectionItem, LineItem, RectangleItem, PolygonItem, EllipseItem, TextItem)):
+                if isinstance(item, (VectorItem, PointItem, DirectionItem, LineItem, RectangleItem, PolygonItem, EllipseItem, TextItem, SpringItem, SquiggleItem)):
                     self._dragging_item = item
                     self._drag_anchor = item.drag_anchor()
                     self._drag_last = scene_pos
@@ -731,7 +777,27 @@ class FBDCanvas(QGraphicsView):
                     dx = end.x() - self._draw_start.x()
                     dy = end.y() - self._draw_start.y()
                     if (dx * dx + dy * dy) > 100:  # min 10px
-                        if creating_tool == ToolMode.DIRECTION:
+                        if creating_tool == ToolMode.SQUIGGLE:
+                            sq = SquiggleItem(self._draw_start, end)
+                            if self._has_undo_stack():
+                                cmd = AddItemCommand(self, sq, 'squiggles')
+                                self._undo_stack.push(cmd)
+                            else:
+                                self.add_squiggle(sq)
+                                self.modified.emit()
+                            self._scene.clearSelection()
+                            sq.setSelected(True)
+                        elif creating_tool == ToolMode.SPRING:
+                            sp = SpringItem(self._draw_start, end)
+                            if self._has_undo_stack():
+                                cmd = AddItemCommand(self, sp, 'springs')
+                                self._undo_stack.push(cmd)
+                            else:
+                                self.add_spring(sp)
+                                self.modified.emit()
+                            self._scene.clearSelection()
+                            sp.setSelected(True)
+                        elif creating_tool == ToolMode.DIRECTION:
                             d = DirectionItem(self._draw_start, end)
                             if self._has_undo_stack():
                                 cmd = AddItemCommand(self, d, 'directions')
@@ -892,7 +958,8 @@ class FBDCanvas(QGraphicsView):
     def _find_canvas_item(self, graphics_item):
         """Find the VectorItem/PointItem/DirectionItem/LineItem/MomentItem that owns a graphics item."""
         if isinstance(graphics_item, (VectorItem, PointItem, DirectionItem, LineItem,
-                                      MomentItem, RectangleItem, PolygonItem, EllipseItem, TextItem)):
+                                      MomentItem, RectangleItem, PolygonItem, EllipseItem,
+                                      TextItem, SpringItem, SquiggleItem)):
             return graphics_item
         # BaseLabel / BaseControlPoint / Moment handles all use _parent_item
         parent = getattr(graphics_item, '_parent_item', None)
@@ -1063,6 +1130,8 @@ class FBDCanvas(QGraphicsView):
         'polygons': PolygonItem.from_dict,
         'ellipses': EllipseItem.from_dict,
         'texts': TextItem.from_dict,
+        'springs': SpringItem.from_dict,
+        'squiggles': SquiggleItem.from_dict,
     }
 
     @staticmethod
