@@ -334,8 +334,9 @@ def main():
         return False
 
     def _sync_layer_checkboxes():
-        """Sync layer checkboxes to match the canvas visibility state."""
+        """Sync layer checkboxes and identifier to match the canvas state."""
         c = window.canvas
+        window.identifierLineEdit.setText(c.identifier)
         window.backgroundLayerCheckBox.setChecked(c._bg_visible)
         window.vectorsLayerCheckBox.setChecked(c._visibility.get('vectors', True))
         window.pointsLayerCheckBox.setChecked(c._visibility.get('points', True))
@@ -348,6 +349,7 @@ def main():
         window.textsLayerCheckBox.setChecked(c._visibility.get('texts', True))
         window.springsLayerCheckBox.setChecked(c._visibility.get('springs', True))
         window.squigglesLayerCheckBox.setChecked(c._visibility.get('squiggles', True))
+        window.cogsLayerCheckBox.setChecked(c._visibility.get('cogs', True))
 
     def _do_open(file_path):
         """Load a file into the canvas, resetting undo and dirty state."""
@@ -369,7 +371,16 @@ def main():
         window.canvas.clear_directions()
         window.canvas.clear_lines()
         window.canvas.clear_moments()
+        window.canvas.clear_rectangles()
+        window.canvas.clear_polygons()
+        window.canvas.clear_ellipses()
+        window.canvas.clear_texts()
+        window.canvas.clear_springs()
+        window.canvas.clear_squiggles()
+        window.canvas.clear_cogs()
         window.canvas.set_background(QPixmap())
+        window.canvas.identifier = ""
+        window.identifierLineEdit.setText("")
         _init_new_metadata()
         current_file = None
         undo_stack.clear()
@@ -711,6 +722,12 @@ def main():
         else:
             window.canvas.set_tool(ToolMode.SELECT)
 
+    def on_cog_toggle(checked):
+        if checked:
+            window.canvas.set_tool(ToolMode.COG)
+        else:
+            window.canvas.set_tool(ToolMode.SELECT)
+
     window.vectorToolButton.toggled.connect(on_vector_toggle)
     window.pointToolButton.toggled.connect(on_point_toggle)
     window.directionToolButton.toggled.connect(on_direction_toggle)
@@ -722,6 +739,7 @@ def main():
     window.textToolButton.toggled.connect(on_text_toggle)
     window.springToolButton.toggled.connect(on_spring_toggle)
     window.squiggleToolButton.toggled.connect(on_squiggle_toggle)
+    window.cogToolButton.toggled.connect(on_cog_toggle)
 
     def on_tool_changed(mode):
         _all_tool_buttons = [
@@ -730,7 +748,7 @@ def main():
             window.momentToolButton, window.rectangleToolButton,
             window.polygonToolButton, window.ellipseToolButton,
             window.textToolButton, window.springToolButton,
-            window.squiggleToolButton,
+            window.squiggleToolButton, window.cogToolButton,
         ]
         _tool_mode_map = {
             ToolMode.VECTOR: window.vectorToolButton,
@@ -744,6 +762,7 @@ def main():
             ToolMode.TEXT: window.textToolButton,
             ToolMode.SPRING: window.springToolButton,
             ToolMode.SQUIGGLE: window.squiggleToolButton,
+            ToolMode.COG: window.cogToolButton,
         }
         for btn in _all_tool_buttons:
             btn.blockSignals(True)
@@ -762,6 +781,7 @@ def main():
             ToolMode.TEXT: "Text creation mode — click to place text",
             ToolMode.SPRING: "Spring creation mode — click and drag to draw",
             ToolMode.SQUIGGLE: "Squiggle creation mode — click and drag to draw",
+            ToolMode.COG: "COG creation mode — click to place center of gravity",
         }
         window.statusbar.showMessage(status_msgs.get(mode, "Ready"))
 
@@ -812,6 +832,10 @@ def main():
     # "W" shortcut to toggle squiggle mode
     shortcut_w = QShortcut(QKeySequence("W"), window)
     shortcut_w.activated.connect(lambda: window.squiggleToolButton.toggle())
+
+    # "C" shortcut to toggle COG mode
+    shortcut_c = QShortcut(QKeySequence("C"), window)
+    shortcut_c.activated.connect(lambda: window.cogToolButton.toggle())
 
     # Delete action
     window.actionDelete.triggered.connect(window.canvas.delete_selected)
@@ -1125,13 +1149,14 @@ def main():
             polygon = window.canvas.get_selected_polygon()
             ellipse = window.canvas.get_selected_ellipse()
             text = window.canvas.get_selected_text()
+            cog = window.canvas.get_selected_cog()
         except RuntimeError:
             return  # scene already destroyed during shutdown
 
         spring = window.canvas.get_selected_spring()
         squiggle = window.canvas.get_selected_squiggle()
 
-        if vec is None and point is None and direction is None and line is None and moment is None and rect is None and polygon is None and ellipse is None and text is None and spring is None and squiggle is None:
+        if vec is None and point is None and direction is None and line is None and moment is None and rect is None and polygon is None and ellipse is None and text is None and spring is None and squiggle is None and cog is None:
             window.propertiesGroupBox.setVisible(False)
             return
 
@@ -1300,6 +1325,14 @@ def main():
             _rect_angle_spin.setVisible(True)
             _rect_angle_spin.setValue(ellipse.angle_ccw)
 
+        # COG item
+        if cog is not None:
+            window.showLabelCheckBox.setChecked(cog.label_visible)
+            window.labelTextLineEdit.setText(cog.label_text)
+            window.fontSizeSpinBox.setValue(cog.font_size)
+            window.boldButton.setChecked(cog.label_bold)
+            window.italicButton.setChecked(cog.label_italic)
+
         # Text item (label controls are common, just sync values)
         if text is not None:
             window.showLabelCheckBox.setChecked(text.label_visible)
@@ -1336,7 +1369,8 @@ def main():
                 or window.canvas.get_selected_ellipse()
                 or window.canvas.get_selected_text()
                 or window.canvas.get_selected_spring()
-                or window.canvas.get_selected_squiggle())
+                or window.canvas.get_selected_squiggle()
+                or window.canvas.get_selected_cog())
 
     def _get_selected_line_item():
         """Return the selected vector, direction, line, spring, or squiggle (items with tail/head)."""
@@ -1949,6 +1983,12 @@ def main():
 
     _reverse_moment_check.toggled.connect(on_reverse_moment_toggled)
 
+    # --- Identifier ---
+    def _on_identifier_changed(text: str):
+        window.canvas.identifier = text
+        mark_dirty()
+    window.identifierLineEdit.textChanged.connect(_on_identifier_changed)
+
     # --- Layer visibility checkboxes ---
     window.backgroundLayerCheckBox.toggled.connect(window.canvas.set_background_visible)
     window.vectorsLayerCheckBox.toggled.connect(window.canvas.set_vectors_visible)
@@ -1962,6 +2002,7 @@ def main():
     window.textsLayerCheckBox.toggled.connect(window.canvas.set_texts_visible)
     window.springsLayerCheckBox.toggled.connect(window.canvas.set_springs_visible)
     window.squigglesLayerCheckBox.toggled.connect(window.canvas.set_squiggles_visible)
+    window.cogsLayerCheckBox.toggled.connect(window.canvas.set_cogs_visible)
 
     # Sync panel after undo/redo and modifications (e.g. drag) so it reflects current state
     undo_stack.indexChanged.connect(lambda _: sync_panel())

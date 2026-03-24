@@ -19,6 +19,7 @@ from ellipse_item import EllipseItem
 from text_item import TextItem
 from spring_item import SpringItem
 from squiggle_item import SquiggleItem
+from cog_item import CogItem
 
 # --- Current format ---
 MAGIC_HEADER_V7_JSON = b"FBDB_v7\x00\x00\x00"  # 10 bytes, hybrid binary+JSON
@@ -183,8 +184,10 @@ def _save_v7(canvas: FBDCanvas, file_path: Path):
             "texts": canvas.get_texts_data(),
             "springs": canvas.get_springs_data(),
             "squiggles": canvas.get_squiggles_data(),
+            "cogs": canvas.get_cogs_data(),
             "metadata": canvas.metadata.to_dict(),
             "layer_visibility": layer_vis,
+            "identifier": canvas.identifier,
         }
         json_bytes = json.dumps(data, separators=(",", ":")).encode("utf-8")
         f.write(struct.pack("<I", len(json_bytes)))
@@ -213,6 +216,11 @@ def _load_v7(canvas: FBDCanvas, file_path: Path):
         canvas.clear_moments()
         canvas.clear_rectangles()
         canvas.clear_polygons()
+        canvas.clear_ellipses()
+        canvas.clear_texts()
+        canvas.clear_springs()
+        canvas.clear_squiggles()
+        canvas.clear_cogs()
 
         if img_len > 0:
             img_bytes = _read_exact(f, img_len)
@@ -247,6 +255,10 @@ def _load_v7(canvas: FBDCanvas, file_path: Path):
             canvas.add_spring(SpringItem.from_dict(spr_data))
         for sq_data in data.get("squiggles", []):
             canvas.add_squiggle(SquiggleItem.from_dict(sq_data))
+        for cog_data in data.get("cogs", []):
+            canvas.add_cog(CogItem.from_dict(cog_data))
+
+        canvas.identifier = data.get("identifier", "")
 
         meta_data = data.get("metadata")
         if meta_data:
@@ -267,6 +279,7 @@ def _load_v7(canvas: FBDCanvas, file_path: Path):
             canvas.set_texts_visible(layer_vis.get("texts", True))
             canvas.set_springs_visible(layer_vis.get("springs", True))
             canvas.set_squiggles_visible(layer_vis.get("squiggles", True))
+            canvas.set_cogs_visible(layer_vis.get("cogs", True))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -288,6 +301,9 @@ def _load_legacy_json(canvas: FBDCanvas, file_path: Path):
     canvas.clear_texts()
     canvas.clear_springs()
     canvas.clear_squiggles()
+    canvas.clear_cogs()
+
+    canvas.identifier = data.get("identifier", "")
 
     bg_data = data.get("background_image")
     if bg_data:
@@ -317,6 +333,8 @@ def _load_legacy_json(canvas: FBDCanvas, file_path: Path):
         canvas.add_spring(SpringItem.from_dict(spr_data))
     for sq_data in data.get("squiggles", []):
         canvas.add_squiggle(SquiggleItem.from_dict(sq_data))
+    for cog_data in data.get("cogs", []):
+        canvas.add_cog(CogItem.from_dict(cog_data))
 
     meta_data = data.get("metadata")
     if meta_data:
@@ -361,6 +379,9 @@ def _load_legacy_binary(canvas: FBDCanvas, file_path: Path):
         canvas.clear_texts()
         canvas.clear_springs()
         canvas.clear_squiggles()
+        canvas.clear_cogs()
+
+        canvas.identifier = ""
 
         # Background image
         img_len = struct.unpack("<I", _read_exact(f, 4))[0]

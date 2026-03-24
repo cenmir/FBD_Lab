@@ -174,8 +174,36 @@
              </property>
             </widget>
            </item>
+           <item row="5" column="1">
+            <widget class="QPushButton" name="cogToolButton">
+             <property name="text">
+              <string>Create COG (C)</string>
+             </property>
+             <property name="checkable">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
           </layout>
          </widget>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="identifierLayout">
+          <item>
+           <widget class="QLabel" name="identifierLabel">
+            <property name="text">
+             <string>Identifier:</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QLineEdit" name="identifierLineEdit">
+            <property name="placeholderText">
+             <string>e.g. Problem 3.1</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
         </item>
         <item>
          <widget class="QGroupBox" name="layersGroupBox">
@@ -297,6 +325,16 @@
             <widget class="QCheckBox" name="ellipsesLayerCheckBox">
              <property name="text">
               <string>Ellipses</string>
+             </property>
+             <property name="checked">
+              <bool>true</bool>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QCheckBox" name="cogsLayerCheckBox">
+             <property name="text">
+              <string>COGs</string>
              </property>
              <property name="checked">
               <bool>true</bool>

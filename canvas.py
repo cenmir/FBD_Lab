@@ -26,6 +26,7 @@ from ellipse_item import EllipseItem
 from text_item import TextItem
 from spring_item import SpringItem
 from squiggle_item import SquiggleItem
+from cog_item import CogItem
 from commands import (
     AddItemCommand, DeleteItemCommand, MoveItemCommand,
     ChangeRadiusCommand, ChangeZValueCommand,
@@ -85,6 +86,7 @@ class ToolMode(Enum):
     TEXT = auto()
     SPRING = auto()
     SQUIGGLE = auto()
+    COG = auto()
 
 
 class FBDCanvas(QGraphicsView):
@@ -109,6 +111,7 @@ class FBDCanvas(QGraphicsView):
 
         self._bg_item: QGraphicsPixmapItem | None = None
         self._undo_stack: QUndoStack | None = None
+        self._identifier: str = ""
 
         # Item registry — single source of truth for all item lists
         self._items: dict[str, list] = {
@@ -123,6 +126,7 @@ class FBDCanvas(QGraphicsView):
             'texts': [],
             'springs': [],
             'squiggles': [],
+            'cogs': [],
         }
         self._visibility: dict[str, bool] = {
             'vectors': True,
@@ -136,6 +140,7 @@ class FBDCanvas(QGraphicsView):
             'texts': True,
             'springs': True,
             'squiggles': True,
+            'cogs': True,
         }
         self._type_classes: dict[str, type] = {
             'vectors': VectorItem,
@@ -149,6 +154,7 @@ class FBDCanvas(QGraphicsView):
             'texts': TextItem,
             'springs': SpringItem,
             'squiggles': SquiggleItem,
+            'cogs': CogItem,
         }
 
         # Session metadata
@@ -206,6 +212,14 @@ class FBDCanvas(QGraphicsView):
 
     def set_undo_stack(self, stack: QUndoStack):
         self._undo_stack = stack
+
+    @property
+    def identifier(self) -> str:
+        return self._identifier
+
+    @identifier.setter
+    def identifier(self, val: str):
+        self._identifier = val
 
     @property
     def metadata(self) -> SessionMetadata:
@@ -440,6 +454,13 @@ class FBDCanvas(QGraphicsView):
     def get_selected_squiggle(self):    return self._get_selected_item(SquiggleItem)
     def clear_squiggles(self):          self._clear_items('squiggles')
 
+    def add_cog(self, c):               self._add_item('cogs', c)
+    def remove_cog(self, c):            self._remove_item('cogs', c)
+    def get_cogs(self):                 return self._get_items('cogs')
+    def get_cogs_data(self):            return self._get_items_data('cogs')
+    def get_selected_cog(self):         return self._get_selected_item(CogItem)
+    def clear_cogs(self):               self._clear_items('cogs')
+
     # --- Layer visibility ---
 
     def set_background_visible(self, visible: bool):
@@ -458,6 +479,7 @@ class FBDCanvas(QGraphicsView):
     def set_texts_visible(self, visible):      self._set_type_visible('texts', visible)
     def set_springs_visible(self, visible):    self._set_type_visible('springs', visible)
     def set_squiggles_visible(self, visible):  self._set_type_visible('squiggles', visible)
+    def set_cogs_visible(self, visible):       self._set_type_visible('cogs', visible)
 
     # --- Snapping ---
 
@@ -610,6 +632,22 @@ class FBDCanvas(QGraphicsView):
                 self.set_tool(ToolMode.SELECT)
                 return
 
+            # COG creation mode (single click to place)
+            if self._tool == ToolMode.COG:
+                scene_pos = self.mapToScene(event.pos())
+                cog = CogItem(scene_pos)
+                if self._has_undo_stack():
+                    cmd = AddItemCommand(self, cog, 'cogs')
+                    self._undo_stack.push(cmd)
+                else:
+                    self.add_cog(cog)
+                    self.modified.emit()
+                self._scene.clearSelection()
+                cog.setSelected(True)
+                self.selection_changed.emit()
+                self.set_tool(ToolMode.SELECT)
+                return
+
             # Text creation mode (single click to place)
             if self._tool == ToolMode.TEXT:
                 scene_pos = self.mapToScene(event.pos())
@@ -638,7 +676,7 @@ class FBDCanvas(QGraphicsView):
                         self._scene.clearSelection()
                         item.setSelected(True)
                     return
-                if isinstance(item, (VectorItem, PointItem, DirectionItem, LineItem, RectangleItem, PolygonItem, EllipseItem, TextItem, SpringItem, SquiggleItem)):
+                if isinstance(item, (VectorItem, PointItem, DirectionItem, LineItem, RectangleItem, PolygonItem, EllipseItem, TextItem, SpringItem, SquiggleItem, CogItem)):
                     self._dragging_item = item
                     self._drag_anchor = item.drag_anchor()
                     self._drag_last = scene_pos
@@ -1132,6 +1170,7 @@ class FBDCanvas(QGraphicsView):
         'texts': TextItem.from_dict,
         'springs': SpringItem.from_dict,
         'squiggles': SquiggleItem.from_dict,
+        'cogs': CogItem.from_dict,
     }
 
     @staticmethod
