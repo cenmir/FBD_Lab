@@ -6,9 +6,15 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1300</width>
-    <height>1000</height>
+    <width>1400</width>
+    <height>900</height>
    </rect>
+  </property>
+  <property name="maximumSize">
+   <size>
+    <width>1920</width>
+    <height>1080</height>
+   </size>
   </property>
   <property name="windowTitle">
    <string>FBD Lab - Free Body Diagram Laboratory</string>
@@ -35,778 +41,354 @@
       <property name="orientation">
        <enum>Qt::Horizontal</enum>
       </property>
-      <widget class="QWidget" name="sidePanel">
+      <widget class="QScrollArea" name="leftScrollArea">
        <property name="minimumSize">
         <size>
-         <width>250</width>
+         <width>260</width>
          <height>0</height>
         </size>
        </property>
        <property name="maximumSize">
         <size>
-         <width>300</width>
+         <width>280</width>
          <height>16777215</height>
         </size>
        </property>
-       <layout class="QVBoxLayout" name="sidePanelLayout">
-        <property name="spacing">
-         <number>8</number>
+       <property name="frameShape">
+        <enum>QFrame::NoFrame</enum>
+       </property>
+       <property name="horizontalScrollBarPolicy">
+        <enum>Qt::ScrollBarAlwaysOff</enum>
+       </property>
+       <property name="widgetResizable">
+        <bool>true</bool>
+       </property>
+       <widget class="QWidget" name="leftPanelContents">
+        <property name="geometry">
+         <rect>
+          <x>0</x>
+          <y>0</y>
+          <width>260</width>
+          <height>859</height>
+         </rect>
         </property>
-        <property name="leftMargin">
-         <number>5</number>
-        </property>
-        <item>
-         <widget class="QGroupBox" name="toolsGroupBox">
-          <property name="layoutDirection">
-           <enum>Qt::LeftToRight</enum>
-          </property>
-          <property name="title">
-           <string>Tools</string>
-          </property>
-          <layout class="QGridLayout" name="gridLayout">
-           <item row="0" column="0">
-            <widget class="QPushButton" name="vectorToolButton">
-             <property name="text">
-              <string>Create Force (F)</string>
-             </property>
-             <property name="checkable">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="0" column="1">
-            <widget class="QPushButton" name="pointToolButton">
-             <property name="text">
-              <string>Create Point (P)</string>
-             </property>
-             <property name="checkable">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="0">
-            <widget class="QPushButton" name="directionToolButton">
-             <property name="text">
-              <string>Create Direction (D)</string>
-             </property>
-             <property name="checkable">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="1">
-            <widget class="QPushButton" name="lineToolButton">
-             <property name="text">
-              <string>Create Line (L)</string>
-             </property>
-             <property name="checkable">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="2" column="0">
-            <widget class="QPushButton" name="momentToolButton">
-             <property name="text">
-              <string>Create Moment (M)</string>
-             </property>
-             <property name="checkable">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="2" column="1">
-            <widget class="QPushButton" name="rectangleToolButton">
-             <property name="text">
-              <string>Create Rectangle (R)</string>
-             </property>
-             <property name="checkable">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="3" column="0">
-            <widget class="QPushButton" name="polygonToolButton">
-             <property name="text">
-              <string>Create Polygon (G)</string>
-             </property>
-             <property name="checkable">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="3" column="1">
-            <widget class="QPushButton" name="textToolButton">
-             <property name="text">
-              <string>Create Text (T)</string>
-             </property>
-             <property name="checkable">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="4" column="0">
-            <widget class="QPushButton" name="springToolButton">
-             <property name="text">
-              <string>Create Spring (S)</string>
-             </property>
-             <property name="checkable">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="4" column="1">
-            <widget class="QPushButton" name="squiggleToolButton">
-             <property name="text">
-              <string>Create Squiggle (W)</string>
-             </property>
-             <property name="checkable">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="5" column="0">
-            <widget class="QPushButton" name="ellipseToolButton">
-             <property name="text">
-              <string>Create Ellipse (E)</string>
-             </property>
-             <property name="checkable">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item row="5" column="1">
-            <widget class="QPushButton" name="cogToolButton">
-             <property name="text">
-              <string>Create COG (C)</string>
-             </property>
-             <property name="checkable">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <layout class="QHBoxLayout" name="identifierLayout">
-          <item>
-           <widget class="QLabel" name="identifierLabel">
-            <property name="text">
-             <string>Identifier:</string>
-            </property>
-           </widget>
-          </item>
-          <item>
-           <widget class="QLineEdit" name="identifierLineEdit">
-            <property name="placeholderText">
-             <string>e.g. Problem 3.1</string>
-            </property>
-           </widget>
-          </item>
-         </layout>
-        </item>
-        <item>
-         <widget class="QGroupBox" name="layersGroupBox">
-          <property name="title">
-           <string>Layers</string>
-          </property>
-          <layout class="QVBoxLayout" name="layersLayout">
-           <item>
-            <widget class="QCheckBox" name="backgroundLayerCheckBox">
-             <property name="text">
-              <string>Background Image</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="vectorsLayerCheckBox">
-             <property name="text">
-              <string>Forces</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="pointsLayerCheckBox">
-             <property name="text">
-              <string>Points</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="directionsLayerCheckBox">
-             <property name="text">
-              <string>Directions</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="linesLayerCheckBox">
-             <property name="text">
-              <string>Lines</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="momentsLayerCheckBox">
-             <property name="text">
-              <string>Moments</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="rectanglesLayerCheckBox">
-             <property name="text">
-              <string>Rectangles</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="polygonsLayerCheckBox">
-             <property name="text">
-              <string>Polygons</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="textsLayerCheckBox">
-             <property name="text">
-              <string>Texts</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="squigglesLayerCheckBox">
-             <property name="text">
-              <string>Squiggles</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="springsLayerCheckBox">
-             <property name="text">
-              <string>Springs</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="ellipsesLayerCheckBox">
-             <property name="text">
-              <string>Ellipses</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-           <item>
-            <widget class="QCheckBox" name="cogsLayerCheckBox">
-             <property name="text">
-              <string>COGs</string>
-             </property>
-             <property name="checked">
-              <bool>true</bool>
-             </property>
-            </widget>
-           </item>
-          </layout>
-         </widget>
-        </item>
-        <item>
-         <widget class="QGroupBox" name="propertiesGroupBox">
-          <property name="enabled">
-           <bool>false</bool>
-          </property>
-          <property name="title">
-           <string>Properties</string>
-          </property>
-          <layout class="QFormLayout" name="propertiesLayout">
-           <property name="fieldGrowthPolicy">
-            <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
+        <layout class="QVBoxLayout" name="leftPanelLayout">
+         <property name="spacing">
+          <number>8</number>
+         </property>
+         <property name="leftMargin">
+          <number>5</number>
+         </property>
+         <property name="rightMargin">
+          <number>5</number>
+         </property>
+         <item>
+          <widget class="QGroupBox" name="toolsGroupBox">
+           <property name="title">
+            <string>Tools</string>
            </property>
-           <item row="0" column="0">
-            <widget class="QLabel" name="startXLabel">
+           <layout class="QGridLayout" name="gridLayout">
+            <item row="0" column="0">
+             <widget class="QPushButton" name="vectorToolButton">
+              <property name="text">
+               <string>Create Force (F)</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QPushButton" name="pointToolButton">
+              <property name="text">
+               <string>Create Point (P)</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="0">
+             <widget class="QPushButton" name="directionToolButton">
+              <property name="text">
+               <string>Create Direction (D)</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QPushButton" name="lineToolButton">
+              <property name="text">
+               <string>Create Line (L)</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="0">
+             <widget class="QPushButton" name="momentToolButton">
+              <property name="text">
+               <string>Create Moment (M)</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="1">
+             <widget class="QPushButton" name="rectangleToolButton">
+              <property name="text">
+               <string>Create Rectangle (R)</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="0">
+             <widget class="QPushButton" name="polygonToolButton">
+              <property name="text">
+               <string>Create Polygon (G)</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="1">
+             <widget class="QPushButton" name="textToolButton">
+              <property name="text">
+               <string>Create Text (T)</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="0">
+             <widget class="QPushButton" name="springToolButton">
+              <property name="text">
+               <string>Create Spring (S)</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="1">
+             <widget class="QPushButton" name="squiggleToolButton">
+              <property name="text">
+               <string>Create Squiggle (W)</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="5" column="0">
+             <widget class="QPushButton" name="ellipseToolButton">
+              <property name="text">
+               <string>Create Ellipse (E)</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item row="5" column="1">
+             <widget class="QPushButton" name="cogToolButton">
+              <property name="text">
+               <string>Create COG (C)</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <layout class="QHBoxLayout" name="identifierLayout">
+           <item>
+            <widget class="QLabel" name="identifierLabel">
              <property name="text">
-              <string>Start X:</string>
+              <string>Identifier:</string>
              </property>
             </widget>
            </item>
-           <item row="0" column="1">
-            <widget class="QDoubleSpinBox" name="startXSpinBox">
-             <property name="decimals">
-              <number>1</number>
-             </property>
-             <property name="minimum">
-              <double>-99999.000000000000000</double>
-             </property>
-             <property name="maximum">
-              <double>99999.000000000000000</double>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="0">
-            <widget class="QLabel" name="startYLabel">
-             <property name="text">
-              <string>Start Y:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="1" column="1">
-            <widget class="QDoubleSpinBox" name="startYSpinBox">
-             <property name="decimals">
-              <number>1</number>
-             </property>
-             <property name="minimum">
-              <double>-99999.000000000000000</double>
-             </property>
-             <property name="maximum">
-              <double>99999.000000000000000</double>
-             </property>
-            </widget>
-           </item>
-           <item row="2" column="0">
-            <widget class="QLabel" name="endXLabel">
-             <property name="text">
-              <string>End X:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="2" column="1">
-            <widget class="QDoubleSpinBox" name="endXSpinBox">
-             <property name="decimals">
-              <number>1</number>
-             </property>
-             <property name="minimum">
-              <double>-99999.000000000000000</double>
-             </property>
-             <property name="maximum">
-              <double>99999.000000000000000</double>
-             </property>
-            </widget>
-           </item>
-           <item row="3" column="0">
-            <widget class="QLabel" name="endYLabel">
-             <property name="text">
-              <string>End Y:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="3" column="1">
-            <widget class="QDoubleSpinBox" name="endYSpinBox">
-             <property name="decimals">
-              <number>1</number>
-             </property>
-             <property name="minimum">
-              <double>-99999.000000000000000</double>
-             </property>
-             <property name="maximum">
-              <double>99999.000000000000000</double>
-             </property>
-            </widget>
-           </item>
-           <item row="4" column="0">
-            <widget class="QLabel" name="magnitudeLabel">
-             <property name="text">
-              <string>Magnitude:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="4" column="1">
-            <widget class="QLineEdit" name="magnitudeLineEdit">
+           <item>
+            <widget class="QLineEdit" name="identifierLineEdit">
              <property name="placeholderText">
-              <string>e.g. 65 kN, \alpha</string>
+              <string>e.g. Problem 3.1</string>
              </property>
             </widget>
-           </item>
-           <item row="5" column="0">
-            <widget class="QLabel" name="showMagnitudeLabel">
-             <property name="text">
-              <string>Show Magnitude:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="5" column="1">
-            <widget class="QCheckBox" name="showMagnitudeCheckBox">
-             <property name="text">
-              <string/>
-             </property>
-            </widget>
-           </item>
-           <item row="6" column="0" colspan="2">
-            <widget class="QFrame" name="labelDivider">
-             <property name="frameShape">
-              <enum>QFrame::HLine</enum>
-             </property>
-             <property name="frameShadow">
-              <enum>QFrame::Sunken</enum>
-             </property>
-            </widget>
-           </item>
-           <item row="7" column="0">
-            <widget class="QLabel" name="showLabelLabel">
-             <property name="text">
-              <string>Show Label:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="7" column="1">
-            <widget class="QCheckBox" name="showLabelCheckBox">
-             <property name="text">
-              <string/>
-             </property>
-            </widget>
-           </item>
-           <item row="8" column="0">
-            <widget class="QLabel" name="labelTextLabel">
-             <property name="text">
-              <string>Label:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="8" column="1">
-            <widget class="QLineEdit" name="labelTextLineEdit">
-             <property name="placeholderText">
-              <string>e.g. F_1</string>
-             </property>
-            </widget>
-           </item>
-           <item row="10" column="0">
-            <widget class="QLabel" name="posXLabel">
-             <property name="text">
-              <string>Position X:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="10" column="1">
-            <widget class="QDoubleSpinBox" name="posXSpinBox">
-             <property name="decimals">
-              <number>1</number>
-             </property>
-             <property name="minimum">
-              <double>-99999.000000000000000</double>
-             </property>
-             <property name="maximum">
-              <double>99999.000000000000000</double>
-             </property>
-            </widget>
-           </item>
-           <item row="11" column="0">
-            <widget class="QLabel" name="posYLabel">
-             <property name="text">
-              <string>Position Y:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="11" column="1">
-            <widget class="QDoubleSpinBox" name="posYSpinBox">
-             <property name="decimals">
-              <number>1</number>
-             </property>
-             <property name="minimum">
-              <double>-99999.000000000000000</double>
-             </property>
-             <property name="maximum">
-              <double>99999.000000000000000</double>
-             </property>
-            </widget>
-           </item>
-           <item row="12" column="0">
-            <widget class="QLabel" name="showArrowheadLabel">
-             <property name="text">
-              <string>Show Arrowhead:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="12" column="1">
-            <widget class="QCheckBox" name="showArrowheadCheckBox">
-             <property name="text">
-              <string/>
-             </property>
-            </widget>
-           </item>
-           <item row="13" column="0">
-            <widget class="QLabel" name="bodyThicknessLabel">
-             <property name="text">
-              <string>Body Thickness:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="13" column="1">
-            <widget class="QSpinBox" name="bodyThicknessSpinBox">
-             <property name="minimum">
-              <number>1</number>
-             </property>
-             <property name="maximum">
-              <number>50</number>
-             </property>
-             <property name="value">
-              <number>10</number>
-             </property>
-            </widget>
-           </item>
-           <item row="14" column="0">
-            <widget class="QLabel" name="outlineThicknessLabel">
-             <property name="text">
-              <string>Outline Thickness:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="14" column="1">
-            <widget class="QSpinBox" name="outlineThicknessSpinBox">
-             <property name="minimum">
-              <number>0</number>
-             </property>
-             <property name="maximum">
-              <number>10</number>
-             </property>
-             <property name="value">
-              <number>2</number>
-             </property>
-            </widget>
-           </item>
-           <item row="15" column="0">
-            <widget class="QLabel" name="centerXLabel">
-             <property name="text">
-              <string>Center X:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="15" column="1">
-            <widget class="QDoubleSpinBox" name="centerXSpinBox">
-             <property name="decimals">
-              <number>1</number>
-             </property>
-             <property name="minimum">
-              <double>-99999.000000000000000</double>
-             </property>
-             <property name="maximum">
-              <double>99999.000000000000000</double>
-             </property>
-            </widget>
-           </item>
-           <item row="16" column="0">
-            <widget class="QLabel" name="centerYLabel">
-             <property name="text">
-              <string>Center Y:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="16" column="1">
-            <widget class="QDoubleSpinBox" name="centerYSpinBox">
-             <property name="decimals">
-              <number>1</number>
-             </property>
-             <property name="minimum">
-              <double>-99999.000000000000000</double>
-             </property>
-             <property name="maximum">
-              <double>99999.000000000000000</double>
-             </property>
-            </widget>
-           </item>
-           <item row="17" column="0">
-            <widget class="QLabel" name="radiusLabel">
-             <property name="text">
-              <string>Radius:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="17" column="1">
-            <widget class="QDoubleSpinBox" name="radiusSpinBox">
-             <property name="decimals">
-              <number>1</number>
-             </property>
-             <property name="minimum">
-              <double>5.000000000000000</double>
-             </property>
-             <property name="maximum">
-              <double>9999.000000000000000</double>
-             </property>
-            </widget>
-           </item>
-           <item row="18" column="0">
-            <widget class="QLabel" name="startAngleLabel">
-             <property name="text">
-              <string>Start Angle:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="18" column="1">
-            <widget class="QDoubleSpinBox" name="startAngleSpinBox">
-             <property name="decimals">
-              <number>1</number>
-             </property>
-             <property name="minimum">
-              <double>0.000000000000000</double>
-             </property>
-             <property name="maximum">
-              <double>360.000000000000000</double>
-             </property>
-             <property name="suffix">
-              <string>°</string>
-             </property>
-            </widget>
-           </item>
-           <item row="19" column="0">
-            <widget class="QLabel" name="spanAngleLabel">
-             <property name="text">
-              <string>Span Angle:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="19" column="1">
-            <widget class="QDoubleSpinBox" name="spanAngleSpinBox">
-             <property name="decimals">
-              <number>1</number>
-             </property>
-             <property name="minimum">
-              <double>1.000000000000000</double>
-             </property>
-             <property name="maximum">
-              <double>360.000000000000000</double>
-             </property>
-             <property name="suffix">
-              <string>°</string>
-             </property>
-            </widget>
-           </item>
-           <item row="9" column="0">
-            <widget class="QLabel" name="fontSizeLabel">
-             <property name="text">
-              <string>Font Size:</string>
-             </property>
-            </widget>
-           </item>
-           <item row="9" column="1">
-            <layout class="QHBoxLayout" name="fontSizeRow">
-             <property name="spacing">
-              <number>4</number>
-             </property>
-             <item>
-              <widget class="QSpinBox" name="fontSizeSpinBox">
-               <property name="minimum">
-                <number>6</number>
-               </property>
-               <property name="maximum">
-                <number>72</number>
-               </property>
-               <property name="value">
-                <number>22</number>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QPushButton" name="boldButton">
-               <property name="minimumSize">
-                <size>
-                 <width>28</width>
-                 <height>28</height>
-                </size>
-               </property>
-               <property name="maximumSize">
-                <size>
-                 <width>28</width>
-                 <height>28</height>
-                </size>
-               </property>
-               <property name="font">
-                <font>
-                 <weight>75</weight>
-                 <bold>true</bold>
-                </font>
-               </property>
-               <property name="text">
-                <string>B</string>
-               </property>
-               <property name="checkable">
-                <bool>true</bool>
-               </property>
-               <property name="checked">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-             <item>
-              <widget class="QPushButton" name="italicButton">
-               <property name="minimumSize">
-                <size>
-                 <width>28</width>
-                 <height>28</height>
-                </size>
-               </property>
-               <property name="maximumSize">
-                <size>
-                 <width>28</width>
-                 <height>28</height>
-                </size>
-               </property>
-               <property name="font">
-                <font>
-                 <italic>true</italic>
-                </font>
-               </property>
-               <property name="text">
-                <string>I</string>
-               </property>
-               <property name="checkable">
-                <bool>true</bool>
-               </property>
-               <property name="checked">
-                <bool>true</bool>
-               </property>
-              </widget>
-             </item>
-            </layout>
            </item>
           </layout>
-         </widget>
-        </item>
-        <item>
-         <spacer name="sidePanelSpacer">
-          <property name="orientation">
-           <enum>Qt::Vertical</enum>
-          </property>
-          <property name="sizeHint" stdset="0">
-           <size>
-            <width>20</width>
-            <height>40</height>
-           </size>
-          </property>
-         </spacer>
-        </item>
-       </layout>
+         </item>
+         <item>
+          <widget class="QGroupBox" name="layersGroupBox">
+           <property name="title">
+            <string>Layers</string>
+           </property>
+           <property name="checkable">
+            <bool>true</bool>
+           </property>
+           <property name="checked">
+            <bool>false</bool>
+           </property>
+           <layout class="QVBoxLayout" name="layersLayout">
+            <item>
+             <widget class="QCheckBox" name="backgroundLayerCheckBox">
+              <property name="text">
+               <string>Background Image</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="vectorsLayerCheckBox">
+              <property name="text">
+               <string>Forces</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="pointsLayerCheckBox">
+              <property name="text">
+               <string>Points</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="directionsLayerCheckBox">
+              <property name="text">
+               <string>Directions</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="linesLayerCheckBox">
+              <property name="text">
+               <string>Lines</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="momentsLayerCheckBox">
+              <property name="text">
+               <string>Moments</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="rectanglesLayerCheckBox">
+              <property name="text">
+               <string>Rectangles</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="polygonsLayerCheckBox">
+              <property name="text">
+               <string>Polygons</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="textsLayerCheckBox">
+              <property name="text">
+               <string>Texts</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="squigglesLayerCheckBox">
+              <property name="text">
+               <string>Squiggles</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="springsLayerCheckBox">
+              <property name="text">
+               <string>Springs</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="ellipsesLayerCheckBox">
+              <property name="text">
+               <string>Ellipses</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="cogsLayerCheckBox">
+              <property name="text">
+               <string>COGs</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <spacer name="leftPanelSpacer">
+           <property name="orientation">
+            <enum>Qt::Vertical</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>20</width>
+             <height>40</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </widget>
       </widget>
       <widget class="FBDCanvas" name="canvas">
        <property name="sizePolicy">
@@ -815,6 +397,512 @@
          <verstretch>0</verstretch>
         </sizepolicy>
        </property>
+      </widget>
+      <widget class="QScrollArea" name="rightScrollArea">
+       <property name="minimumSize">
+        <size>
+         <width>260</width>
+         <height>0</height>
+        </size>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>280</width>
+         <height>16777215</height>
+        </size>
+       </property>
+       <property name="frameShape">
+        <enum>QFrame::NoFrame</enum>
+       </property>
+       <property name="horizontalScrollBarPolicy">
+        <enum>Qt::ScrollBarAlwaysOff</enum>
+       </property>
+       <property name="widgetResizable">
+        <bool>true</bool>
+       </property>
+       <widget class="QWidget" name="rightPanelContents">
+        <property name="geometry">
+         <rect>
+          <x>0</x>
+          <y>0</y>
+          <width>260</width>
+          <height>859</height>
+         </rect>
+        </property>
+        <layout class="QVBoxLayout" name="rightPanelLayout">
+         <property name="spacing">
+          <number>8</number>
+         </property>
+         <property name="leftMargin">
+          <number>5</number>
+         </property>
+         <property name="rightMargin">
+          <number>5</number>
+         </property>
+         <item>
+          <widget class="QGroupBox" name="propertiesGroupBox">
+           <property name="enabled">
+            <bool>false</bool>
+           </property>
+           <property name="title">
+            <string>Properties</string>
+           </property>
+           <layout class="QFormLayout" name="propertiesLayout">
+            <property name="fieldGrowthPolicy">
+             <enum>QFormLayout::AllNonFixedFieldsGrow</enum>
+            </property>
+            <item row="0" column="0">
+             <widget class="QLabel" name="startXLabel">
+              <property name="text">
+               <string>Start X:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="0" column="1">
+             <widget class="QDoubleSpinBox" name="startXSpinBox">
+              <property name="decimals">
+               <number>1</number>
+              </property>
+              <property name="minimum">
+               <double>-99999.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>99999.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="0">
+             <widget class="QLabel" name="startYLabel">
+              <property name="text">
+               <string>Start Y:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="1" column="1">
+             <widget class="QDoubleSpinBox" name="startYSpinBox">
+              <property name="decimals">
+               <number>1</number>
+              </property>
+              <property name="minimum">
+               <double>-99999.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>99999.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="0">
+             <widget class="QLabel" name="endXLabel">
+              <property name="text">
+               <string>End X:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="2" column="1">
+             <widget class="QDoubleSpinBox" name="endXSpinBox">
+              <property name="decimals">
+               <number>1</number>
+              </property>
+              <property name="minimum">
+               <double>-99999.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>99999.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="0">
+             <widget class="QLabel" name="endYLabel">
+              <property name="text">
+               <string>End Y:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="3" column="1">
+             <widget class="QDoubleSpinBox" name="endYSpinBox">
+              <property name="decimals">
+               <number>1</number>
+              </property>
+              <property name="minimum">
+               <double>-99999.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>99999.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="0">
+             <widget class="QLabel" name="magnitudeLabel">
+              <property name="text">
+               <string>Magnitude:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="4" column="1">
+             <widget class="QLineEdit" name="magnitudeLineEdit">
+              <property name="placeholderText">
+               <string>e.g. 65 kN, \alpha</string>
+              </property>
+             </widget>
+            </item>
+            <item row="5" column="0">
+             <widget class="QLabel" name="showMagnitudeLabel">
+              <property name="text">
+               <string>Show Magnitude:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="5" column="1">
+             <widget class="QCheckBox" name="showMagnitudeCheckBox">
+              <property name="text">
+               <string/>
+              </property>
+             </widget>
+            </item>
+            <item row="6" column="0" colspan="2">
+             <widget class="QFrame" name="labelDivider">
+              <property name="frameShape">
+               <enum>QFrame::HLine</enum>
+              </property>
+              <property name="frameShadow">
+               <enum>QFrame::Sunken</enum>
+              </property>
+             </widget>
+            </item>
+            <item row="7" column="0">
+             <widget class="QLabel" name="showLabelLabel">
+              <property name="text">
+               <string>Show Label:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="7" column="1">
+             <widget class="QCheckBox" name="showLabelCheckBox">
+              <property name="text">
+               <string/>
+              </property>
+             </widget>
+            </item>
+            <item row="8" column="0">
+             <widget class="QLabel" name="labelTextLabel">
+              <property name="text">
+               <string>Label:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="8" column="1">
+             <widget class="QLineEdit" name="labelTextLineEdit">
+              <property name="placeholderText">
+               <string>e.g. F_1</string>
+              </property>
+             </widget>
+            </item>
+            <item row="9" column="0">
+             <widget class="QLabel" name="fontSizeLabel">
+              <property name="text">
+               <string>Font Size:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="9" column="1">
+             <layout class="QHBoxLayout" name="fontSizeRow">
+              <property name="spacing">
+               <number>4</number>
+              </property>
+              <item>
+               <widget class="QSpinBox" name="fontSizeSpinBox">
+                <property name="minimum">
+                 <number>6</number>
+                </property>
+                <property name="maximum">
+                 <number>72</number>
+                </property>
+                <property name="value">
+                 <number>22</number>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="boldButton">
+                <property name="minimumSize">
+                 <size>
+                  <width>28</width>
+                  <height>28</height>
+                 </size>
+                </property>
+                <property name="maximumSize">
+                 <size>
+                  <width>28</width>
+                  <height>28</height>
+                 </size>
+                </property>
+                <property name="font">
+                 <font>
+                  <weight>75</weight>
+                  <bold>true</bold>
+                 </font>
+                </property>
+                <property name="text">
+                 <string>B</string>
+                </property>
+                <property name="checkable">
+                 <bool>true</bool>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+              <item>
+               <widget class="QPushButton" name="italicButton">
+                <property name="minimumSize">
+                 <size>
+                  <width>28</width>
+                  <height>28</height>
+                 </size>
+                </property>
+                <property name="maximumSize">
+                 <size>
+                  <width>28</width>
+                  <height>28</height>
+                 </size>
+                </property>
+                <property name="font">
+                 <font>
+                  <italic>true</italic>
+                 </font>
+                </property>
+                <property name="text">
+                 <string>I</string>
+                </property>
+                <property name="checkable">
+                 <bool>true</bool>
+                </property>
+                <property name="checked">
+                 <bool>true</bool>
+                </property>
+               </widget>
+              </item>
+             </layout>
+            </item>
+            <item row="10" column="0">
+             <widget class="QLabel" name="posXLabel">
+              <property name="text">
+               <string>Position X:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="10" column="1">
+             <widget class="QDoubleSpinBox" name="posXSpinBox">
+              <property name="decimals">
+               <number>1</number>
+              </property>
+              <property name="minimum">
+               <double>-99999.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>99999.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item row="11" column="0">
+             <widget class="QLabel" name="posYLabel">
+              <property name="text">
+               <string>Position Y:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="11" column="1">
+             <widget class="QDoubleSpinBox" name="posYSpinBox">
+              <property name="decimals">
+               <number>1</number>
+              </property>
+              <property name="minimum">
+               <double>-99999.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>99999.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item row="12" column="0">
+             <widget class="QLabel" name="showArrowheadLabel">
+              <property name="text">
+               <string>Show Arrowhead:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="12" column="1">
+             <widget class="QCheckBox" name="showArrowheadCheckBox">
+              <property name="text">
+               <string/>
+              </property>
+             </widget>
+            </item>
+            <item row="13" column="0">
+             <widget class="QLabel" name="bodyThicknessLabel">
+              <property name="text">
+               <string>Body Thickness:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="13" column="1">
+             <widget class="QSpinBox" name="bodyThicknessSpinBox">
+              <property name="minimum">
+               <number>1</number>
+              </property>
+              <property name="maximum">
+               <number>50</number>
+              </property>
+              <property name="value">
+               <number>10</number>
+              </property>
+             </widget>
+            </item>
+            <item row="14" column="0">
+             <widget class="QLabel" name="outlineThicknessLabel">
+              <property name="text">
+               <string>Outline Thickness:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="14" column="1">
+             <widget class="QSpinBox" name="outlineThicknessSpinBox">
+              <property name="minimum">
+               <number>0</number>
+              </property>
+              <property name="maximum">
+               <number>10</number>
+              </property>
+              <property name="value">
+               <number>2</number>
+              </property>
+             </widget>
+            </item>
+            <item row="15" column="0">
+             <widget class="QLabel" name="centerXLabel">
+              <property name="text">
+               <string>Center X:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="15" column="1">
+             <widget class="QDoubleSpinBox" name="centerXSpinBox">
+              <property name="decimals">
+               <number>1</number>
+              </property>
+              <property name="minimum">
+               <double>-99999.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>99999.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item row="16" column="0">
+             <widget class="QLabel" name="centerYLabel">
+              <property name="text">
+               <string>Center Y:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="16" column="1">
+             <widget class="QDoubleSpinBox" name="centerYSpinBox">
+              <property name="decimals">
+               <number>1</number>
+              </property>
+              <property name="minimum">
+               <double>-99999.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>99999.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item row="17" column="0">
+             <widget class="QLabel" name="radiusLabel">
+              <property name="text">
+               <string>Radius:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="17" column="1">
+             <widget class="QDoubleSpinBox" name="radiusSpinBox">
+              <property name="decimals">
+               <number>1</number>
+              </property>
+              <property name="minimum">
+               <double>5.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>9999.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item row="18" column="0">
+             <widget class="QLabel" name="startAngleLabel">
+              <property name="text">
+               <string>Start Angle:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="18" column="1">
+             <widget class="QDoubleSpinBox" name="startAngleSpinBox">
+              <property name="suffix">
+               <string>°</string>
+              </property>
+              <property name="decimals">
+               <number>1</number>
+              </property>
+              <property name="minimum">
+               <double>0.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>360.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+            <item row="19" column="0">
+             <widget class="QLabel" name="spanAngleLabel">
+              <property name="text">
+               <string>Span Angle:</string>
+              </property>
+             </widget>
+            </item>
+            <item row="19" column="1">
+             <widget class="QDoubleSpinBox" name="spanAngleSpinBox">
+              <property name="suffix">
+               <string>°</string>
+              </property>
+              <property name="decimals">
+               <number>1</number>
+              </property>
+              <property name="minimum">
+               <double>1.000000000000000</double>
+              </property>
+              <property name="maximum">
+               <double>360.000000000000000</double>
+              </property>
+             </widget>
+            </item>
+           </layout>
+          </widget>
+         </item>
+         <item>
+          <spacer name="rightPanelSpacer">
+           <property name="orientation">
+            <enum>Qt::Vertical</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>20</width>
+             <height>40</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </widget>
       </widget>
      </widget>
     </item>
@@ -825,7 +913,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>1200</width>
+     <width>1400</width>
      <height>21</height>
     </rect>
    </property>

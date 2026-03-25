@@ -204,6 +204,15 @@ def main():
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 
+    # Collapsible Layers group box — toggle content visibility on check
+    def _on_layers_toggled(checked):
+        for i in range(window.layersGroupBox.layout().count()):
+            item = window.layersGroupBox.layout().itemAt(i)
+            if item.widget():
+                item.widget().setVisible(checked)
+    window.layersGroupBox.toggled.connect(_on_layers_toggled)
+    _on_layers_toggled(window.layersGroupBox.isChecked())
+
     # Undo stack
     undo_stack = QUndoStack(window)
     window.canvas.set_undo_stack(undo_stack)
