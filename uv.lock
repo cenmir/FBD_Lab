@@ -4,8 +4,8 @@ requires-python = ">=3.13"
 
 [[package]]
 name = "fbd-lab"
-version = "0.6.0"
-source = { virtual = "." }
+version = "0.7.1"
+source = { editable = "." }
 dependencies = [
     { name = "pyqt6" },
 ]

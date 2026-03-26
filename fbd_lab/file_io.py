@@ -6,20 +6,13 @@ from pathlib import Path
 from PyQt6.QtCore import QBuffer, QIODevice
 from PyQt6.QtGui import QPixmap, QImage, QPainter, QColor
 
-from canvas import FBDCanvas, SessionMetadata
-from base_item import DEFAULT_FONT_SIZE
-from vector_item import VectorItem, DEFAULT_MAGNITUDE
-from point_item import PointItem
-from direction_item import DirectionItem
-from line_item import LineItem
-from moment_item import MomentItem
-from rectangle_item import RectangleItem
-from polygon_item import PolygonItem
-from ellipse_item import EllipseItem
-from text_item import TextItem
-from spring_item import SpringItem
-from squiggle_item import SquiggleItem
-from cog_item import CogItem
+from fbd_lab.canvas import FBDCanvas, SessionMetadata
+from fbd_lab.items import (
+    VectorItem, PointItem, DirectionItem, LineItem, MomentItem,
+    RectangleItem, PolygonItem, EllipseItem, TextItem, SpringItem,
+    SquiggleItem, CogItem, ITEM_REGISTRY, DEFAULT_FONT_SIZE,
+)
+from fbd_lab.items.vector import DEFAULT_MAGNITUDE
 
 # --- Current format ---
 MAGIC_HEADER_V7_JSON = b"FBDB_v7\x00\x00\x00"  # 10 bytes, hybrid binary+JSON
@@ -173,18 +166,8 @@ def _save_v7(canvas: FBDCanvas, file_path: Path):
         layer_vis = dict(canvas._visibility)
         layer_vis["background"] = canvas._bg_visible
         data = {
-            "arrows": canvas.get_vectors_data(),
-            "points": canvas.get_points_data(),
-            "directions": canvas.get_directions_data(),
-            "lines": canvas.get_lines_data(),
-            "moments": canvas.get_moments_data(),
-            "rectangles": canvas.get_rectangles_data(),
-            "polygons": canvas.get_polygons_data(),
-            "ellipses": canvas.get_ellipses_data(),
-            "texts": canvas.get_texts_data(),
-            "springs": canvas.get_springs_data(),
-            "squiggles": canvas.get_squiggles_data(),
-            "cogs": canvas.get_cogs_data(),
+            **{json_key: canvas._get_items_data(type_key)
+               for type_key, _, json_key in ITEM_REGISTRY},
             "metadata": canvas.metadata.to_dict(),
             "layer_visibility": layer_vis,
             "identifier": canvas.identifier,
@@ -209,18 +192,7 @@ def _load_v7(canvas: FBDCanvas, file_path: Path):
         if img_len > MAX_IMAGE_BYTES:
             raise ValueError(f"Image size {img_len} exceeds maximum")
 
-        canvas.clear_vectors()
-        canvas.clear_points()
-        canvas.clear_directions()
-        canvas.clear_lines()
-        canvas.clear_moments()
-        canvas.clear_rectangles()
-        canvas.clear_polygons()
-        canvas.clear_ellipses()
-        canvas.clear_texts()
-        canvas.clear_springs()
-        canvas.clear_squiggles()
-        canvas.clear_cogs()
+        canvas.clear_all()
 
         if img_len > 0:
             img_bytes = _read_exact(f, img_len)
@@ -233,30 +205,10 @@ def _load_v7(canvas: FBDCanvas, file_path: Path):
         json_bytes = _read_exact(f, json_len)
         data = json.loads(json_bytes.decode("utf-8"))
 
-        for vec_data in data.get("arrows", []):
-            canvas.add_vector(VectorItem.from_dict(vec_data))
-        for pt_data in data.get("points", []):
-            canvas.add_point(PointItem.from_dict(pt_data))
-        for dir_data in data.get("directions", []):
-            canvas.add_direction(DirectionItem.from_dict(dir_data))
-        for line_data in data.get("lines", []):
-            canvas.add_line(LineItem.from_dict(line_data))
-        for mom_data in data.get("moments", []):
-            canvas.add_moment(MomentItem.from_dict(mom_data))
-        for rect_data in data.get("rectangles", []):
-            canvas.add_rectangle(RectangleItem.from_dict(rect_data))
-        for poly_data in data.get("polygons", []):
-            canvas.add_polygon(PolygonItem.from_dict(poly_data))
-        for ell_data in data.get("ellipses", []):
-            canvas.add_ellipse(EllipseItem.from_dict(ell_data))
-        for txt_data in data.get("texts", []):
-            canvas.add_text(TextItem.from_dict(txt_data))
-        for spr_data in data.get("springs", []):
-            canvas.add_spring(SpringItem.from_dict(spr_data))
-        for sq_data in data.get("squiggles", []):
-            canvas.add_squiggle(SquiggleItem.from_dict(sq_data))
-        for cog_data in data.get("cogs", []):
-            canvas.add_cog(CogItem.from_dict(cog_data))
+        # Load all item types from registry
+        for type_key, cls, json_key in ITEM_REGISTRY:
+            for item_data in data.get(json_key, []):
+                canvas._add_item(type_key, cls.from_dict(item_data))
 
         canvas.identifier = data.get("identifier", "")
 
@@ -268,18 +220,8 @@ def _load_v7(canvas: FBDCanvas, file_path: Path):
         layer_vis = data.get("layer_visibility")
         if layer_vis:
             canvas.set_background_visible(layer_vis.get("background", True))
-            canvas.set_vectors_visible(layer_vis.get("vectors", True))
-            canvas.set_points_visible(layer_vis.get("points", True))
-            canvas.set_directions_visible(layer_vis.get("directions", True))
-            canvas.set_lines_visible(layer_vis.get("lines", True))
-            canvas.set_moments_visible(layer_vis.get("moments", True))
-            canvas.set_rectangles_visible(layer_vis.get("rectangles", True))
-            canvas.set_polygons_visible(layer_vis.get("polygons", True))
-            canvas.set_ellipses_visible(layer_vis.get("ellipses", True))
-            canvas.set_texts_visible(layer_vis.get("texts", True))
-            canvas.set_springs_visible(layer_vis.get("springs", True))
-            canvas.set_squiggles_visible(layer_vis.get("squiggles", True))
-            canvas.set_cogs_visible(layer_vis.get("cogs", True))
+            for type_key, _, _ in ITEM_REGISTRY:
+                canvas._set_type_visible(type_key, layer_vis.get(type_key, True))
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -290,18 +232,7 @@ def _load_legacy_json(canvas: FBDCanvas, file_path: Path):
     text = file_path.read_text(encoding="utf-8")
     data = json.loads(text)
 
-    canvas.clear_vectors()
-    canvas.clear_points()
-    canvas.clear_directions()
-    canvas.clear_lines()
-    canvas.clear_moments()
-    canvas.clear_rectangles()
-    canvas.clear_polygons()
-    canvas.clear_ellipses()
-    canvas.clear_texts()
-    canvas.clear_springs()
-    canvas.clear_squiggles()
-    canvas.clear_cogs()
+    canvas.clear_all()
 
     canvas.identifier = data.get("identifier", "")
 
@@ -311,30 +242,10 @@ def _load_legacy_json(canvas: FBDCanvas, file_path: Path):
         if not pixmap.isNull():
             canvas.set_background(pixmap)
 
-    for vec_data in data.get("arrows", []):
-        canvas.add_vector(VectorItem.from_dict(vec_data))
-    for pt_data in data.get("points", []):
-        canvas.add_point(PointItem.from_dict(pt_data))
-    for dir_data in data.get("directions", []):
-        canvas.add_direction(DirectionItem.from_dict(dir_data))
-    for line_data in data.get("lines", []):
-        canvas.add_line(LineItem.from_dict(line_data))
-    for mom_data in data.get("moments", []):
-        canvas.add_moment(MomentItem.from_dict(mom_data))
-    for rect_data in data.get("rectangles", []):
-        canvas.add_rectangle(RectangleItem.from_dict(rect_data))
-    for poly_data in data.get("polygons", []):
-        canvas.add_polygon(PolygonItem.from_dict(poly_data))
-    for ell_data in data.get("ellipses", []):
-        canvas.add_ellipse(EllipseItem.from_dict(ell_data))
-    for txt_data in data.get("texts", []):
-        canvas.add_text(TextItem.from_dict(txt_data))
-    for spr_data in data.get("springs", []):
-        canvas.add_spring(SpringItem.from_dict(spr_data))
-    for sq_data in data.get("squiggles", []):
-        canvas.add_squiggle(SquiggleItem.from_dict(sq_data))
-    for cog_data in data.get("cogs", []):
-        canvas.add_cog(CogItem.from_dict(cog_data))
+    # Load all item types from registry
+    for type_key, cls, json_key in ITEM_REGISTRY:
+        for item_data in data.get(json_key, []):
+            canvas._add_item(type_key, cls.from_dict(item_data))
 
     meta_data = data.get("metadata")
     if meta_data:
@@ -368,19 +279,7 @@ def _load_legacy_binary(canvas: FBDCanvas, file_path: Path):
             else:
                 raise ValueError("Invalid FBD binary file: bad magic header")
 
-        canvas.clear_vectors()
-        canvas.clear_points()
-        canvas.clear_directions()
-        canvas.clear_lines()
-        canvas.clear_moments()
-        canvas.clear_rectangles()
-        canvas.clear_polygons()
-        canvas.clear_ellipses()
-        canvas.clear_texts()
-        canvas.clear_springs()
-        canvas.clear_squiggles()
-        canvas.clear_cogs()
-
+        canvas.clear_all()
         canvas.identifier = ""
 
         # Background image

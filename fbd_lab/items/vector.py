@@ -7,21 +7,15 @@ from PyQt6.QtGui import (
     QPolygonF, QPainter,
 )
 from PyQt6.QtWidgets import (
-    QGraphicsItem, QGraphicsPathItem,
     QStyleOptionGraphicsItem, QWidget,
 )
 
-from base_item import (
-    BaseLabel, BaseControlPoint, LabelPropertiesMixin,
+from fbd_lab.items.base import (
+    TwoEndpointItem, BaseLabel, BaseControlPoint, LabelPropertiesMixin,
     latex_to_unicode, label_to_html,
-    SELECTED_COLOR,
-)
-
-# Re-export for backward compatibility (file_io.py, etc.)
-from base_item import (  # noqa: F401
-    label_to_html, get_cm_font, latex_to_unicode,
-    LABEL_COLOR, SELECTED_COLOR, DEFAULT_LABEL_OFFSET, DEFAULT_FONT_SIZE,
-    SNAP_ANGLE_DEG, LATEX_TO_UNICODE,
+    SELECTED_COLOR, DEFAULT_HANDLE_RADIUS, DEFAULT_FONT_SIZE,
+    LABEL_COLOR, DEFAULT_LABEL_OFFSET, SNAP_ANGLE_DEG,
+    LATEX_TO_UNICODE, get_cm_font,
 )
 
 VECTOR_COLOR = QColor(220, 50, 50)
@@ -41,7 +35,7 @@ vector_settings = VectorSettings()  # global singleton
 DEFAULT_MAGNITUDE = ""
 
 
-class VectorItem(LabelPropertiesMixin, QGraphicsPathItem):
+class VectorItem(TwoEndpointItem):
     """A straight vector from tail to head with an arrowhead."""
 
     _DEFAULT_ITEM_COLOR = VECTOR_COLOR
@@ -50,42 +44,20 @@ class VectorItem(LabelPropertiesMixin, QGraphicsPathItem):
         return QColor(VECTOR_COLOR)
 
     def __init__(self, tail: QPointF, head: QPointF, parent=None):
-        super().__init__(parent)
-        self._tail = QPointF(tail)
-        self._head = QPointF(head)
         self._magnitude = DEFAULT_MAGNITUDE
         self._show_magnitude = False
         self._item_color = QColor(VECTOR_COLOR)
         self._item_opacity = 255
 
+        super().__init__(tail, head, handle_radius=vector_settings.handle_radius, parent=parent)
+
         self._rebuild_pens()
         self.setPen(self._pen_normal)
         self._head_polygon: QPolygonF | None = None
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setZValue(1)
-
-        # Control points (added to scene later)
-        r = vector_settings.handle_radius
-        self._tail_handle = BaseControlPoint(tail.x(), tail.y(), self, is_head=False, handle_radius=r)
-        self._head_handle = BaseControlPoint(head.x(), head.y(), self, is_head=True, handle_radius=r)
-
-        # Label (added to scene later)
-        self._label = BaseLabel(self)
-        self._init_label_properties()
-        self._label.set_font_size(self._font_size)
 
         self._rebuild_path()
 
-    # --- LabelPropertiesMixin overrides ---
-
-    def label_anchor(self) -> QPointF:
-        return (self._tail + self._head) / 2
-
-    def drag_anchor(self) -> QPointF:
-        return QPointF(self._tail)
-
-    def _get_handles(self) -> list:
-        return [self._tail_handle, self._head_handle]
+    # --- Label override ---
 
     def get_label_html(self) -> str:
         html = label_to_html(self._label_text, self._label_bold, self._label_italic)
@@ -98,14 +70,6 @@ class VectorItem(LabelPropertiesMixin, QGraphicsPathItem):
         return html
 
     # --- Properties ---
-
-    @property
-    def tail(self) -> QPointF:
-        return QPointF(self._tail)
-
-    @property
-    def head(self) -> QPointF:
-        return QPointF(self._head)
 
     @property
     def magnitude(self) -> str:
@@ -131,26 +95,6 @@ class VectorItem(LabelPropertiesMixin, QGraphicsPathItem):
         dx = self._head.x() - self._tail.x()
         dy = self._head.y() - self._tail.y()
         return math.hypot(dx, dy)
-
-    # --- Movement ---
-
-    def move_by(self, delta: QPointF):
-        """Translate the entire vector (tail + head) by delta."""
-        self._tail += delta
-        self._head += delta
-        self._tail_handle.setPos(self._tail)
-        self._head_handle.setPos(self._head)
-        self._rebuild_path()
-
-    def set_tail(self, point: QPointF):
-        self._tail = QPointF(point)
-        self._tail_handle.setPos(point)
-        self._rebuild_path()
-
-    def set_head(self, point: QPointF):
-        self._head = QPointF(point)
-        self._head_handle.setPos(point)
-        self._rebuild_path()
 
     # --- Style ---
 
@@ -238,12 +182,7 @@ class VectorItem(LabelPropertiesMixin, QGraphicsPathItem):
         return wide
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None):
-        is_sel = self.isSelected()
-        color = SELECTED_COLOR if is_sel else self._get_item_color_with_opacity()
-
-        self._tail_handle.setVisible(is_sel)
-        self._head_handle.setVisible(is_sel)
-        self._label.update_color(is_sel)
+        is_sel, color = self._paint_preamble()
 
         # Draw shaft with thick pen (pulled back from tip)
         shaft_pen = self._shaft_pen_selected if is_sel else self._shaft_pen_normal
@@ -260,9 +199,7 @@ class VectorItem(LabelPropertiesMixin, QGraphicsPathItem):
     # --- Serialization ---
 
     def to_dict(self) -> dict:
-        d = self._base_to_dict()
-        d["tail"] = [self._tail.x(), self._tail.y()]
-        d["head"] = [self._head.x(), self._head.y()]
+        d = self._endpoint_to_dict()
         d["magnitude"] = self._magnitude
         d["show_magnitude"] = self._show_magnitude
         return d

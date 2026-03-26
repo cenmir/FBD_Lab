@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QGraphicsSceneMouseEvent, QStyleOptionGraphicsItem, QWidget,
 )
 
-from base_item import BaseLabel, LabelPropertiesMixin, SELECTED_COLOR
+from fbd_lab.items.base import BaseLabel, LabelPropertiesMixin, SELECTED_COLOR
 
 DEFAULT_RADIUS = 12.0
 MIN_RADIUS = 5.0
@@ -59,7 +59,7 @@ class CogResizeHandle(QGraphicsEllipseItem):
         push_fn = self._parent_item.on_push_undo
         if push_fn is not None:
             self._parent_item._set_radius(old_r)
-            from commands import ChangeShapePropertyCommand
+            from fbd_lab.commands import ChangeShapePropertyCommand
             cmd = ChangeShapePropertyCommand(
                 self._parent_item, 'radius', old_r, new_r, "Resize COG")
             push_fn(cmd)

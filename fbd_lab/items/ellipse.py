@@ -11,8 +11,8 @@ from PyQt6.QtWidgets import (
     QGraphicsSceneMouseEvent, QStyleOptionGraphicsItem, QWidget,
 )
 
-from base_item import BaseLabel, LabelPropertiesMixin, SELECTED_COLOR
-from rotation_handle import RotationHandleItem
+from fbd_lab.items.base import BaseLabel, LabelPropertiesMixin, SELECTED_COLOR
+from fbd_lab.items.rotation_handle import RotationHandleItem
 
 ELLIPSE_FILL_COLOR = QColor(0xA8, 0xD8, 0xEA)    # light blue
 ELLIPSE_OUTLINE_COLOR = QColor(0x4A, 0x90, 0xA8)  # darker blue

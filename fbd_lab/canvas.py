@@ -15,19 +15,12 @@ from PyQt6.QtWidgets import (
     QGraphicsEllipseItem, QApplication, QMenu,
 )
 
-from vector_item import VectorItem
-from point_item import PointItem
-from direction_item import DirectionItem
-from line_item import LineItem
-from moment_item import MomentItem
-from rectangle_item import RectangleItem
-from polygon_item import PolygonItem
-from ellipse_item import EllipseItem
-from text_item import TextItem
-from spring_item import SpringItem
-from squiggle_item import SquiggleItem
-from cog_item import CogItem
-from commands import (
+from fbd_lab.items import (
+    VectorItem, PointItem, DirectionItem, LineItem, MomentItem,
+    RectangleItem, PolygonItem, EllipseItem, TextItem, SpringItem,
+    SquiggleItem, CogItem, ITEM_REGISTRY,
+)
+from fbd_lab.commands import (
     AddItemCommand, DeleteItemCommand, MoveItemCommand,
     ChangeRadiusCommand, ChangeZValueCommand,
 )
@@ -113,49 +106,10 @@ class FBDCanvas(QGraphicsView):
         self._undo_stack: QUndoStack | None = None
         self._identifier: str = ""
 
-        # Item registry — single source of truth for all item lists
-        self._items: dict[str, list] = {
-            'vectors': [],
-            'points': [],
-            'directions': [],
-            'lines': [],
-            'moments': [],
-            'rectangles': [],
-            'polygons': [],
-            'ellipses': [],
-            'texts': [],
-            'springs': [],
-            'squiggles': [],
-            'cogs': [],
-        }
-        self._visibility: dict[str, bool] = {
-            'vectors': True,
-            'points': True,
-            'directions': True,
-            'lines': True,
-            'moments': True,
-            'rectangles': True,
-            'polygons': True,
-            'ellipses': True,
-            'texts': True,
-            'springs': True,
-            'squiggles': True,
-            'cogs': True,
-        }
-        self._type_classes: dict[str, type] = {
-            'vectors': VectorItem,
-            'points': PointItem,
-            'directions': DirectionItem,
-            'lines': LineItem,
-            'moments': MomentItem,
-            'rectangles': RectangleItem,
-            'polygons': PolygonItem,
-            'ellipses': EllipseItem,
-            'texts': TextItem,
-            'springs': SpringItem,
-            'squiggles': SquiggleItem,
-            'cogs': CogItem,
-        }
+        # Item registry — built from ITEM_REGISTRY in items/__init__.py
+        self._items: dict[str, list] = {key: [] for key, _, _ in ITEM_REGISTRY}
+        self._visibility: dict[str, bool] = {key: True for key, _, _ in ITEM_REGISTRY}
+        self._type_classes: dict[str, type] = {key: cls for key, cls, _ in ITEM_REGISTRY}
 
         # Session metadata
         self._metadata = SessionMetadata()
@@ -460,6 +414,11 @@ class FBDCanvas(QGraphicsView):
     def get_cogs_data(self):            return self._get_items_data('cogs')
     def get_selected_cog(self):         return self._get_selected_item(CogItem)
     def clear_cogs(self):               self._clear_items('cogs')
+
+    def clear_all(self):
+        """Clear all items of all types."""
+        for type_key in self._items:
+            self._clear_items(type_key)
 
     # --- Layer visibility ---
 
@@ -1158,20 +1117,7 @@ class FBDCanvas(QGraphicsView):
 
     # --- Copy / Paste ---
 
-    _FROM_DICT = {
-        'vectors': VectorItem.from_dict,
-        'points': PointItem.from_dict,
-        'directions': DirectionItem.from_dict,
-        'lines': LineItem.from_dict,
-        'moments': MomentItem.from_dict,
-        'rectangles': RectangleItem.from_dict,
-        'polygons': PolygonItem.from_dict,
-        'ellipses': EllipseItem.from_dict,
-        'texts': TextItem.from_dict,
-        'springs': SpringItem.from_dict,
-        'squiggles': SquiggleItem.from_dict,
-        'cogs': CogItem.from_dict,
-    }
+    _FROM_DICT = {key: cls.from_dict for key, cls, _ in ITEM_REGISTRY}
 
     @staticmethod
     def _item_centroid(type_key: str, d: dict) -> QPointF:

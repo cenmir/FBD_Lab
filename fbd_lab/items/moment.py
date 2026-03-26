@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
     QGraphicsSceneMouseEvent,
 )
 
-from base_item import (
+from fbd_lab.items.base import (
     BaseLabel, LabelPropertiesMixin,
     SELECTED_COLOR,
 )

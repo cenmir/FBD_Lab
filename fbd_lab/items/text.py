@@ -7,7 +7,7 @@ from PyQt6.QtWidgets import (
     QStyleOptionGraphicsItem, QWidget,
 )
 
-from base_item import BaseLabel, LabelPropertiesMixin, SELECTED_COLOR
+from fbd_lab.items.base import BaseLabel, LabelPropertiesMixin, SELECTED_COLOR
 
 DEFAULT_TEXT = "Text"
 

@@ -1023,7 +1023,7 @@
   <customwidget>
    <class>FBDCanvas</class>
    <extends>QGraphicsView</extends>
-   <header>canvas</header>
+   <header>fbd_lab.canvas</header>
   </customwidget>
  </customwidgets>
  <resources/>

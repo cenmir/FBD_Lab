@@ -6,70 +6,37 @@ from PyQt6.QtGui import (
     QPolygonF, QPainter,
 )
 from PyQt6.QtWidgets import (
-    QGraphicsItem, QGraphicsPathItem,
     QStyleOptionGraphicsItem, QWidget,
 )
 
-from base_item import (
-    BaseLabel, BaseControlPoint, LabelPropertiesMixin,
-    SELECTED_COLOR,
+from fbd_lab.items.base import (
+    TwoEndpointItem, SELECTED_COLOR, DEFAULT_HANDLE_RADIUS,
 )
-from vector_item import vector_settings
 
 DIRECTION_COLOR = QColor(0, 0, 0)
 ARROWHEAD_LENGTH = 18
 ARROWHEAD_WIDTH = 14
 
 
-class DirectionItem(LabelPropertiesMixin, QGraphicsPathItem):
+class DirectionItem(TwoEndpointItem):
     """A dashed line from tail to head with an optional open-triangle arrowhead."""
 
     def _default_item_color(self) -> QColor:
         return QColor(DIRECTION_COLOR)
 
     def __init__(self, tail: QPointF, head: QPointF, parent=None):
-        super().__init__(parent)
-        self._tail = QPointF(tail)
-        self._head = QPointF(head)
         self._show_arrowhead = False
         self._item_color = QColor(DIRECTION_COLOR)
         self._item_opacity = 255
 
+        super().__init__(tail, head, handle_radius=DEFAULT_HANDLE_RADIUS, parent=parent)
+
         self._head_polygon: QPolygonF | None = None
         self._shaft_end = QPointF(head)
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setZValue(1)
-
-        r = vector_settings.handle_radius
-        self._tail_handle = BaseControlPoint(tail.x(), tail.y(), self, is_head=False, handle_radius=r)
-        self._head_handle = BaseControlPoint(head.x(), head.y(), self, is_head=True, handle_radius=r)
-
-        self._label = BaseLabel(self)
-        self._init_label_properties()
-        self._label.set_font_size(self._font_size)
 
         self._rebuild_path()
 
-    # --- LabelPropertiesMixin overrides ---
-
-    def label_anchor(self) -> QPointF:
-        return (self._tail + self._head) / 2
-
-    def drag_anchor(self) -> QPointF:
-        return QPointF(self._tail)
-
-    def _get_handles(self) -> list:
-        return [self._tail_handle, self._head_handle]
-
     # --- Properties ---
-
-    @property
-    def tail(self) -> QPointF:
-        return QPointF(self._tail)
-
-    @property
-    def head(self) -> QPointF:
-        return QPointF(self._head)
 
     @property
     def show_arrowhead(self) -> bool:
@@ -78,25 +45,6 @@ class DirectionItem(LabelPropertiesMixin, QGraphicsPathItem):
     @show_arrowhead.setter
     def show_arrowhead(self, value: bool):
         self._show_arrowhead = value
-        self._rebuild_path()
-
-    # --- Movement ---
-
-    def move_by(self, delta: QPointF):
-        self._tail += delta
-        self._head += delta
-        self._tail_handle.setPos(self._tail)
-        self._head_handle.setPos(self._head)
-        self._rebuild_path()
-
-    def set_tail(self, point: QPointF):
-        self._tail = QPointF(point)
-        self._tail_handle.setPos(point)
-        self._rebuild_path()
-
-    def set_head(self, point: QPointF):
-        self._head = QPointF(point)
-        self._head_handle.setPos(point)
         self._rebuild_path()
 
     # --- Drawing ---
@@ -143,12 +91,7 @@ class DirectionItem(LabelPropertiesMixin, QGraphicsPathItem):
         return wide
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None):
-        is_sel = self.isSelected()
-        color = SELECTED_COLOR if is_sel else self._get_item_color_with_opacity()
-
-        self._tail_handle.setVisible(is_sel)
-        self._head_handle.setVisible(is_sel)
-        self._label.update_color(is_sel)
+        is_sel, color = self._paint_preamble()
 
         # Draw dashed line
         dash_pen = QPen(color, 2, Qt.PenStyle.DashLine)
@@ -167,9 +110,7 @@ class DirectionItem(LabelPropertiesMixin, QGraphicsPathItem):
     # --- Serialization ---
 
     def to_dict(self) -> dict:
-        d = self._base_to_dict()
-        d["tail"] = [self._tail.x(), self._tail.y()]
-        d["head"] = [self._head.x(), self._head.y()]
+        d = self._endpoint_to_dict()
         d["show_arrowhead"] = self._show_arrowhead
         return d
 

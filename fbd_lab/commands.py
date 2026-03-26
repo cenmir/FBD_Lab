@@ -6,8 +6,8 @@ from PyQt6.QtCore import QPointF
 from PyQt6.QtGui import QUndoCommand
 
 if TYPE_CHECKING:
-    from direction_item import DirectionItem
-    from line_item import LineItem
+    from fbd_lab.items.direction import DirectionItem
+    from fbd_lab.items.line import LineItem
     from moment_item import MomentItem
     from vector_item import VectorItem
 

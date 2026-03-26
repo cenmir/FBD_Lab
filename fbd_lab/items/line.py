@@ -7,13 +7,11 @@ from PyQt6.QtGui import (
     QPolygonF, QPainter,
 )
 from PyQt6.QtWidgets import (
-    QGraphicsItem, QGraphicsPathItem,
     QStyleOptionGraphicsItem, QWidget,
 )
 
-from base_item import (
-    BaseLabel, BaseControlPoint, LabelPropertiesMixin,
-    SELECTED_COLOR,
+from fbd_lab.items.base import (
+    TwoEndpointItem, SELECTED_COLOR,
 )
 
 LINE_BODY_COLOR = QColor(173, 216, 230)    # light blue
@@ -33,13 +31,12 @@ class LineSettings:
 line_settings = LineSettings()  # global singleton
 
 
-class LineItem(LabelPropertiesMixin, QGraphicsPathItem):
+class LineItem(TwoEndpointItem):
     """A solid line rendered as a filled rectangle from tail to head."""
 
     def __init__(self, tail: QPointF, head: QPointF, parent=None):
-        super().__init__(parent)
-        self._tail = QPointF(tail)
-        self._head = QPointF(head)
+        super().__init__(tail, head, handle_radius=line_settings.handle_radius, parent=parent)
+
         self._body_thickness = DEFAULT_BODY_THICKNESS
         self._outline_thickness = DEFAULT_OUTLINE_THICKNESS
         self._show_arrow_tail = False
@@ -49,39 +46,10 @@ class LineItem(LabelPropertiesMixin, QGraphicsPathItem):
         self._rect_polygon: QPolygonF | None = None
         self._arrow_head_poly: QPolygonF | None = None
         self._arrow_tail_poly: QPolygonF | None = None
-        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
-        self.setZValue(1)
-
-        r = line_settings.handle_radius
-        self._tail_handle = BaseControlPoint(tail.x(), tail.y(), self, is_head=False, handle_radius=r)
-        self._head_handle = BaseControlPoint(head.x(), head.y(), self, is_head=True, handle_radius=r)
-
-        self._label = BaseLabel(self)
-        self._init_label_properties()
-        self._label.set_font_size(self._font_size)
 
         self._rebuild_path()
 
-    # --- LabelPropertiesMixin overrides ---
-
-    def label_anchor(self) -> QPointF:
-        return (self._tail + self._head) / 2
-
-    def drag_anchor(self) -> QPointF:
-        return QPointF(self._tail)
-
-    def _get_handles(self) -> list:
-        return [self._tail_handle, self._head_handle]
-
     # --- Properties ---
-
-    @property
-    def tail(self) -> QPointF:
-        return QPointF(self._tail)
-
-    @property
-    def head(self) -> QPointF:
-        return QPointF(self._head)
 
     @property
     def body_thickness(self) -> int:
@@ -129,25 +97,6 @@ class LineItem(LabelPropertiesMixin, QGraphicsPathItem):
     def dashed(self, value: bool):
         self._dashed = value
         self.update()
-
-    # --- Movement ---
-
-    def move_by(self, delta: QPointF):
-        self._tail += delta
-        self._head += delta
-        self._tail_handle.setPos(self._tail)
-        self._head_handle.setPos(self._head)
-        self._rebuild_path()
-
-    def set_tail(self, point: QPointF):
-        self._tail = QPointF(point)
-        self._tail_handle.setPos(point)
-        self._rebuild_path()
-
-    def set_head(self, point: QPointF):
-        self._head = QPointF(point)
-        self._head_handle.setPos(point)
-        self._rebuild_path()
 
     # --- Style ---
 
@@ -278,9 +227,7 @@ class LineItem(LabelPropertiesMixin, QGraphicsPathItem):
     # --- Serialization ---
 
     def to_dict(self) -> dict:
-        d = self._base_to_dict()
-        d["tail"] = [self._tail.x(), self._tail.y()]
-        d["head"] = [self._head.x(), self._head.y()]
+        d = self._endpoint_to_dict()
         d["body_thickness"] = self._body_thickness
         d["outline_thickness"] = self._outline_thickness
         d["show_arrow_tail"] = self._show_arrow_tail

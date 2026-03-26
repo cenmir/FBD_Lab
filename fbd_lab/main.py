@@ -21,12 +21,9 @@ from PyQt6.QtGui import (
 )
 from PyQt6 import uic
 
-from canvas import FBDCanvas, ToolMode, SessionMetadata  # noqa: F401 — FBDCanvas needed for uic promotion
-from vector_item import vector_settings
-from point_item import point_settings, POINT_COLORS
-from line_item import line_settings
-from moment_item import moment_settings
-from commands import (
+from fbd_lab.canvas import FBDCanvas, ToolMode, SessionMetadata  # noqa: F401 — FBDCanvas needed for uic promotion
+from fbd_lab.items import vector_settings, point_settings, POINT_COLORS, line_settings, moment_settings
+from fbd_lab.commands import (
     ResizeVectorCommand, ChangeLabelTextCommand, ChangeLabelVisibilityCommand,
     ChangeMagnitudeCommand, ChangeShowMagnitudeCommand, ChangeFontSizeCommand,
     ChangeLabelBoldCommand, ChangeLabelItalicCommand,
@@ -36,15 +33,9 @@ from commands import (
     MoveMomentCommand, ChangeRadiusCommand, ChangeAnglesCommand,
     ChangeShapePropertyCommand, ChangeRotationCommand,
 )
-from file_io import save_fbd, load_fbd
+from fbd_lab.file_io import save_fbd, load_fbd
 
-try:
-    APP_VERSION = pkg_version("fbd-lab")
-except Exception:
-    # Fallback: read from pyproject.toml directly when not installed
-    import re
-    _toml = (Path(__file__).parent / "pyproject.toml").read_text()
-    APP_VERSION = re.search(r'version\s*=\s*"(.+?)"', _toml).group(1)
+from fbd_lab import __version__ as APP_VERSION
 
 _KEBAB_HASH = "7ddb76ec781e3c955f9128b4896f9a3bb40a28c25292254836375578605cd2b2"
 
@@ -375,18 +366,7 @@ def main():
         nonlocal current_file
         if not check_unsaved_changes():
             return
-        window.canvas.clear_vectors()
-        window.canvas.clear_points()
-        window.canvas.clear_directions()
-        window.canvas.clear_lines()
-        window.canvas.clear_moments()
-        window.canvas.clear_rectangles()
-        window.canvas.clear_polygons()
-        window.canvas.clear_ellipses()
-        window.canvas.clear_texts()
-        window.canvas.clear_springs()
-        window.canvas.clear_squiggles()
-        window.canvas.clear_cogs()
+        window.canvas.clear_all()
         window.canvas.set_background(QPixmap())
         window.canvas.identifier = ""
         window.identifierLineEdit.setText("")
@@ -665,117 +645,34 @@ def main():
     shape_format_menu.addAction(toggle_moment_toolbar)
 
     # --- Tool creation toggles ---
-    def on_vector_toggle(checked):
-        if checked:
-            window.canvas.set_tool(ToolMode.VECTOR)
-        else:
-            window.canvas.set_tool(ToolMode.SELECT)
+    def _make_tool_toggle(mode):
+        def toggle(checked):
+            window.canvas.set_tool(mode if checked else ToolMode.SELECT)
+        return toggle
 
-    def on_point_toggle(checked):
-        if checked:
-            window.canvas.set_tool(ToolMode.POINT)
-        else:
-            window.canvas.set_tool(ToolMode.SELECT)
+    _tool_button_map = [
+        (window.vectorToolButton,    ToolMode.VECTOR),
+        (window.pointToolButton,     ToolMode.POINT),
+        (window.directionToolButton, ToolMode.DIRECTION),
+        (window.lineToolButton,      ToolMode.LINE),
+        (window.momentToolButton,    ToolMode.MOMENT),
+        (window.rectangleToolButton, ToolMode.RECTANGLE),
+        (window.polygonToolButton,   ToolMode.POLYGON),
+        (window.ellipseToolButton,   ToolMode.ELLIPSE),
+        (window.textToolButton,      ToolMode.TEXT),
+        (window.springToolButton,    ToolMode.SPRING),
+        (window.squiggleToolButton,  ToolMode.SQUIGGLE),
+        (window.cogToolButton,       ToolMode.COG),
+    ]
+    for btn, mode in _tool_button_map:
+        btn.toggled.connect(_make_tool_toggle(mode))
 
-    def on_direction_toggle(checked):
-        if checked:
-            window.canvas.set_tool(ToolMode.DIRECTION)
-        else:
-            window.canvas.set_tool(ToolMode.SELECT)
-
-    def on_line_toggle(checked):
-        if checked:
-            window.canvas.set_tool(ToolMode.LINE)
-        else:
-            window.canvas.set_tool(ToolMode.SELECT)
-
-    def on_moment_toggle(checked):
-        if checked:
-            window.canvas.set_tool(ToolMode.MOMENT)
-        else:
-            window.canvas.set_tool(ToolMode.SELECT)
-
-    def on_rectangle_toggle(checked):
-        if checked:
-            window.canvas.set_tool(ToolMode.RECTANGLE)
-        else:
-            window.canvas.set_tool(ToolMode.SELECT)
-
-    def on_polygon_toggle(checked):
-        if checked:
-            window.canvas.set_tool(ToolMode.POLYGON)
-        else:
-            window.canvas.set_tool(ToolMode.SELECT)
-
-    def on_ellipse_toggle(checked):
-        if checked:
-            window.canvas.set_tool(ToolMode.ELLIPSE)
-        else:
-            window.canvas.set_tool(ToolMode.SELECT)
-
-    def on_text_toggle(checked):
-        if checked:
-            window.canvas.set_tool(ToolMode.TEXT)
-        else:
-            window.canvas.set_tool(ToolMode.SELECT)
-
-    def on_spring_toggle(checked):
-        if checked:
-            window.canvas.set_tool(ToolMode.SPRING)
-        else:
-            window.canvas.set_tool(ToolMode.SELECT)
-
-    def on_squiggle_toggle(checked):
-        if checked:
-            window.canvas.set_tool(ToolMode.SQUIGGLE)
-        else:
-            window.canvas.set_tool(ToolMode.SELECT)
-
-    def on_cog_toggle(checked):
-        if checked:
-            window.canvas.set_tool(ToolMode.COG)
-        else:
-            window.canvas.set_tool(ToolMode.SELECT)
-
-    window.vectorToolButton.toggled.connect(on_vector_toggle)
-    window.pointToolButton.toggled.connect(on_point_toggle)
-    window.directionToolButton.toggled.connect(on_direction_toggle)
-    window.lineToolButton.toggled.connect(on_line_toggle)
-    window.momentToolButton.toggled.connect(on_moment_toggle)
-    window.rectangleToolButton.toggled.connect(on_rectangle_toggle)
-    window.polygonToolButton.toggled.connect(on_polygon_toggle)
-    window.ellipseToolButton.toggled.connect(on_ellipse_toggle)
-    window.textToolButton.toggled.connect(on_text_toggle)
-    window.springToolButton.toggled.connect(on_spring_toggle)
-    window.squiggleToolButton.toggled.connect(on_squiggle_toggle)
-    window.cogToolButton.toggled.connect(on_cog_toggle)
+    _mode_to_button = {m: btn for btn, m in _tool_button_map}
 
     def on_tool_changed(mode):
-        _all_tool_buttons = [
-            window.vectorToolButton, window.pointToolButton,
-            window.directionToolButton, window.lineToolButton,
-            window.momentToolButton, window.rectangleToolButton,
-            window.polygonToolButton, window.ellipseToolButton,
-            window.textToolButton, window.springToolButton,
-            window.squiggleToolButton, window.cogToolButton,
-        ]
-        _tool_mode_map = {
-            ToolMode.VECTOR: window.vectorToolButton,
-            ToolMode.POINT: window.pointToolButton,
-            ToolMode.DIRECTION: window.directionToolButton,
-            ToolMode.LINE: window.lineToolButton,
-            ToolMode.MOMENT: window.momentToolButton,
-            ToolMode.RECTANGLE: window.rectangleToolButton,
-            ToolMode.POLYGON: window.polygonToolButton,
-            ToolMode.ELLIPSE: window.ellipseToolButton,
-            ToolMode.TEXT: window.textToolButton,
-            ToolMode.SPRING: window.springToolButton,
-            ToolMode.SQUIGGLE: window.squiggleToolButton,
-            ToolMode.COG: window.cogToolButton,
-        }
-        for btn in _all_tool_buttons:
+        for btn, _ in _tool_button_map:
             btn.blockSignals(True)
-            btn.setChecked(btn is _tool_mode_map.get(mode))
+            btn.setChecked(btn is _mode_to_button.get(mode))
             btn.blockSignals(False)
 
         status_msgs = {

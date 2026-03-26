@@ -13,8 +13,8 @@ from PyQt6.QtWidgets import (
     QGraphicsSceneMouseEvent, QStyleOptionGraphicsItem, QWidget, QApplication,
 )
 
-from base_item import BaseLabel, LabelPropertiesMixin, SELECTED_COLOR
-from rotation_handle import RotationHandleItem
+from fbd_lab.items.base import BaseLabel, LabelPropertiesMixin, SELECTED_COLOR
+from fbd_lab.items.rotation_handle import RotationHandleItem
 
 POLYGON_FILL_COLOR = QColor(0xD8, 0xBA, 0x94)
 POLYGON_OUTLINE_COLOR = QColor(0x8B, 0x6F, 0x4E)

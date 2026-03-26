@@ -10,12 +10,14 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import (
     QGraphicsItem, QGraphicsEllipseItem, QGraphicsTextItem,
+    QGraphicsPathItem,
     QApplication, QGraphicsSceneMouseEvent,
 )
 
 # ─── Shared constants ─────────────────────────────────────────────────────────
 
 SNAP_ANGLE_DEG = 5
+DEFAULT_HANDLE_RADIUS = 6
 
 SELECTED_COLOR = QColor(50, 150, 255)
 LABEL_COLOR = QColor(0, 0, 0)
@@ -40,24 +42,14 @@ LATEX_TO_UNICODE = {
     "\\Lambda": "\u039b", "\\Sigma": "\u03a3", "\\Phi": "\u03a6",
     "\\Psi": "\u03a8", "\\Omega": "\u03a9",
     # Common symbols
-    "\\circ": "\u00b0",      # degree sign °
-    "\\deg": "\u00b0",       # alias
-    "\\cdot": "\u00b7",      # middle dot ·
-    "\\times": "\u00d7",     # multiplication ×
-    "\\pm": "\u00b1",        # plus-minus ±
-    "\\inf": "\u221e",       # infinity ∞
-    "\\infty": "\u221e",     # alias
-    "\\perp": "\u27c2",      # perpendicular ⟂
-    "\\parallel": "\u2225",  # parallel ∥
-    "\\neq": "\u2260",       # not equal ≠
-    "\\leq": "\u2264",       # ≤
-    "\\geq": "\u2265",       # ≥
-    "\\approx": "\u2248",    # ≈
-    "\\sum": "\u2211",       # ∑
-    "\\sqrt": "\u221a",      # √
-    "\\rightarrow": "\u2192", # →
-    "\\leftarrow": "\u2190",  # ←
-    "\\hat": "\u0302",       # combining circumflex
+    "\\circ": "\u00b0", "\\deg": "\u00b0",
+    "\\cdot": "\u00b7", "\\times": "\u00d7", "\\pm": "\u00b1",
+    "\\inf": "\u221e", "\\infty": "\u221e",
+    "\\perp": "\u27c2", "\\parallel": "\u2225",
+    "\\neq": "\u2260", "\\leq": "\u2264", "\\geq": "\u2265",
+    "\\approx": "\u2248", "\\sum": "\u2211", "\\sqrt": "\u221a",
+    "\\rightarrow": "\u2192", "\\leftarrow": "\u2190",
+    "\\hat": "\u0302",
 }
 
 
@@ -74,11 +66,10 @@ _CM_FONT_FAMILY: str | None = None
 
 
 def _load_cm_fonts():
-    """Load bundled Computer Modern fonts. Call once after QApplication exists."""
     global _CM_FONT_FAMILY
     if _CM_FONT_FAMILY is not None:
         return
-    fonts_dir = Path(__file__).parent / "fonts"
+    fonts_dir = Path(__file__).parent.parent / "fonts"
     for name in ("cmunrm.otf", "cmunbx.otf", "cmunti.otf", "cmunbi.otf"):
         path = fonts_dir / name
         if path.exists():
@@ -88,82 +79,74 @@ def _load_cm_fonts():
                 if families:
                     _CM_FONT_FAMILY = families[0]
     if _CM_FONT_FAMILY is None:
-        _CM_FONT_FAMILY = "Serif"  # fallback
+        _CM_FONT_FAMILY = "Serif"
 
 
 def get_cm_font(size: int = DEFAULT_FONT_SIZE) -> QFont:
-    """Return a Computer Modern font at the given point size."""
     _load_cm_fonts()
     return QFont(_CM_FONT_FAMILY, size)
 
 
 # ─── Label text formatting ─────────────────────────────────────────────────────
 
-_TOKEN = r'[A-Za-z0-9\u00b0-\u03ff]+'  # alphanumeric + unicode symbols
+_TOKEN = r'[A-Za-z0-9\u00b0-\u03ff]+'
 _LABEL_RE = re.compile(
-    r'(' + _TOKEN + r')_\{([^}]+)\}\^\{([^}]+)\}'    # base_{sub}^{sup}
-    r'|(' + _TOKEN + r')\^\{([^}]+)\}_\{([^}]+)\}'   # base^{sup}_{sub}
-    r'|(' + _TOKEN + r')_\{([^}]+)\}'                 # base_{subscript}
-    r'|(' + _TOKEN + r')_(' + _TOKEN + r')'           # base_sub
-    r'|(' + _TOKEN + r')\^\{([^}]+)\}'                # base^{superscript}
-    r'|(' + _TOKEN + r')\^(' + _TOKEN + r')'          # base^sup (single token)
-    r'|\^\{([^}]+)\}'                                 # ^{superscript} alone
-    r'|\^(' + _TOKEN + r')'                           # ^sup alone
-    r'|_\{([^}]+)\}'                                  # _{subscript} alone
-    r'|_(' + _TOKEN + r')'                            # _sub alone
-    r'|([^_^]+)'                                      # plain text (up to next _ or ^)
+    r'(' + _TOKEN + r')_\{([^}]+)\}\^\{([^}]+)\}'
+    r'|(' + _TOKEN + r')\^\{([^}]+)\}_\{([^}]+)\}'
+    r'|(' + _TOKEN + r')_\{([^}]+)\}'
+    r'|(' + _TOKEN + r')_(' + _TOKEN + r')'
+    r'|(' + _TOKEN + r')\^\{([^}]+)\}'
+    r'|(' + _TOKEN + r')\^(' + _TOKEN + r')'
+    r'|\^\{([^}]+)\}'
+    r'|\^(' + _TOKEN + r')'
+    r'|_\{([^}]+)\}'
+    r'|_(' + _TOKEN + r')'
+    r'|([^_^]+)'
 )
 
 
 def label_to_html(text: str, bold: bool = True, italic: bool = True) -> str:
-    """Convert physics shorthand to HTML with configurable base styling.
-
-    Supports: base_{sub}, base^{sup}, base_{sub}^{sup}, ^{sup}, _{sub},
-    and LaTeX commands like \\alpha, \\circ, etc.
-    """
     if not text:
         return ""
-
-    # Replace LaTeX commands first
     text = latex_to_unicode(text)
 
-    def _wrap_base(s: str) -> str:
-        result = s
+    def _wrap_base(s):
+        r = s
         if italic:
-            result = f"<i>{result}</i>"
+            r = f"<i>{r}</i>"
         if bold:
-            result = f"<b>{result}</b>"
-        return result
+            r = f"<b>{r}</b>"
+        return r
 
-    def _sub(s: str) -> str:
+    def _sub(s):
         return f"<sub><i>{latex_to_unicode(s)}</i></sub>"
 
-    def _sup(s: str) -> str:
+    def _sup(s):
         return f"<sup><i>{latex_to_unicode(s)}</i></sup>"
 
     parts = []
     for m in _LABEL_RE.finditer(text):
-        if m.group(1) is not None:       # base_{sub}^{sup}
+        if m.group(1) is not None:
             parts.append(f"{_wrap_base(m.group(1))}{_sub(m.group(2))}{_sup(m.group(3))}")
-        elif m.group(4) is not None:     # base^{sup}_{sub}
+        elif m.group(4) is not None:
             parts.append(f"{_wrap_base(m.group(4))}{_sup(m.group(5))}{_sub(m.group(6))}")
-        elif m.group(7) is not None:     # base_{sub}
+        elif m.group(7) is not None:
             parts.append(f"{_wrap_base(m.group(7))}{_sub(m.group(8))}")
-        elif m.group(9) is not None:     # base_sub (no braces)
+        elif m.group(9) is not None:
             parts.append(f"{_wrap_base(m.group(9))}{_sub(m.group(10))}")
-        elif m.group(11) is not None:    # base^{sup}
+        elif m.group(11) is not None:
             parts.append(f"{_wrap_base(m.group(11))}{_sup(m.group(12))}")
-        elif m.group(13) is not None:    # base^sup (no braces)
+        elif m.group(13) is not None:
             parts.append(f"{_wrap_base(m.group(13))}{_sup(m.group(14))}")
-        elif m.group(15) is not None:    # ^{sup} alone
+        elif m.group(15) is not None:
             parts.append(_sup(m.group(15)))
-        elif m.group(16) is not None:    # ^sup alone
+        elif m.group(16) is not None:
             parts.append(_sup(m.group(16)))
-        elif m.group(17) is not None:    # _{sub} alone
+        elif m.group(17) is not None:
             parts.append(_sub(m.group(17)))
-        elif m.group(18) is not None:    # _sub alone
+        elif m.group(18) is not None:
             parts.append(_sub(m.group(18)))
-        elif m.group(19) is not None:    # plain text
+        elif m.group(19) is not None:
             parts.append(_wrap_base(m.group(19)))
     return "".join(parts)
 
@@ -196,7 +179,6 @@ class BaseLabel(QGraphicsTextItem):
     def update_display(self):
         html = self._parent_item.get_label_html()
         if self._has_background:
-            # Wrap in a span with white background
             html = f'<span style="background-color: white; padding: 2px;">{html}</span>'
         self.setHtml(html)
 
@@ -226,23 +208,18 @@ class BaseLabel(QGraphicsTextItem):
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent):
         super().mouseReleaseEvent(event)
-
         if self._drag_old_offset is None:
             return
-
         new_offset = QPointF(self._parent_item._label_offset)
         old_offset = self._drag_old_offset
         self._drag_old_offset = None
-
         if new_offset == old_offset:
             return
-
         push_fn = self._parent_item.on_push_undo
         if push_fn is not None:
             self._parent_item._label_offset = QPointF(old_offset)
             self.update_position()
-
-            from commands import MoveLabelCommand
+            from fbd_lab.commands import MoveLabelCommand
             cmd = MoveLabelCommand(self._parent_item, old_offset, new_offset)
             push_fn(cmd)
 
@@ -250,16 +227,8 @@ class BaseLabel(QGraphicsTextItem):
 # ─── LabelPropertiesMixin ─────────────────────────────────────────────────────
 
 class LabelPropertiesMixin:
-    """Mixin providing shared label/z-order properties for all FBD item types.
+    """Mixin providing shared label/z-order properties for all FBD item types."""
 
-    Subclass must:
-    - Call _init_label_properties() in __init__ after creating self._label
-    - Implement label_anchor() -> QPointF
-    - Implement _get_handles() -> list
-    """
-
-    # Default item color — subclasses should set _item_color before calling
-    # _init_label_properties, or override _default_item_color().
     _DEFAULT_ITEM_COLOR = QColor(0, 0, 0)
 
     def _default_item_color(self) -> QColor:
@@ -276,19 +245,15 @@ class LabelPropertiesMixin:
         self._z_order = 0
         self.on_modified = None
         self.on_push_undo = None
-        # Per-item color and opacity (if not already set by subclass __init__)
         if not hasattr(self, '_item_color'):
             self._item_color = self._default_item_color()
         if not hasattr(self, '_item_opacity'):
             self._item_opacity = 255
 
-    # --- Abstract methods (must override) ---
-
     def label_anchor(self) -> QPointF:
         raise NotImplementedError
 
     def drag_anchor(self) -> QPointF:
-        """Return the current position anchor for body-drag tracking."""
         raise NotImplementedError
 
     def _get_handles(self) -> list:
@@ -296,8 +261,6 @@ class LabelPropertiesMixin:
 
     def get_label_html(self) -> str:
         return label_to_html(self._label_text, self._label_bold, self._label_italic)
-
-    # --- Properties ---
 
     @property
     def label_text(self) -> str:
@@ -382,7 +345,6 @@ class LabelPropertiesMixin:
         self.update()
 
     def _get_item_color_with_opacity(self) -> QColor:
-        """Return item color with opacity applied (for use in paint methods)."""
         c = QColor(self._item_color)
         c.setAlpha(self._item_opacity)
         return c
@@ -403,15 +365,12 @@ class LabelPropertiesMixin:
         self._label.setVisible(self._label_visible and bool(self._label_text))
 
     def set_layer_visible(self, visible: bool):
-        """Show/hide this item and all sub-items for layer visibility."""
         self.setVisible(visible)
         self._label.setVisible(
             visible and self._label_visible and bool(self._label_text)
         )
         for handle in self._get_handles():
             handle.setVisible(visible)
-
-    # --- Scene management ---
 
     def added_to_scene(self, scene):
         for handle in self._get_handles():
@@ -422,8 +381,6 @@ class LabelPropertiesMixin:
         for handle in self._get_handles():
             scene.removeItem(handle)
         scene.removeItem(self._label)
-
-    # --- Serialization helpers ---
 
     def _base_to_dict(self) -> dict:
         d = {
@@ -436,7 +393,6 @@ class LabelPropertiesMixin:
             "label_background": self._label_background,
             "z_order": self._z_order,
         }
-        # Only save color/opacity if non-default
         default_color = self._default_item_color()
         if self._item_color != default_color:
             d["item_color"] = self._item_color.name()
@@ -491,7 +447,6 @@ class BaseControlPoint(QGraphicsEllipseItem):
 
     @staticmethod
     def _snap(anchor: QPointF, pos: QPointF) -> QPointF:
-        """Snap pos to H/V relative to anchor if within SNAP_ANGLE_DEG."""
         dx = pos.x() - anchor.x()
         dy = pos.y() - anchor.y()
         length = math.hypot(dx, dy)
@@ -524,26 +479,136 @@ class BaseControlPoint(QGraphicsEllipseItem):
 
     def mouseReleaseEvent(self, event: QGraphicsSceneMouseEvent):
         super().mouseReleaseEvent(event)
-
         if self._drag_old_tail is None:
             return
-
         new_tail = QPointF(self._parent_item.tail)
         new_head = QPointF(self._parent_item.head)
         old_tail = self._drag_old_tail
         old_head = self._drag_old_head
         self._drag_old_tail = None
         self._drag_old_head = None
-
         if new_tail == old_tail and new_head == old_head:
             return
-
         push_fn = self._parent_item.on_push_undo
         if push_fn is not None:
             self._parent_item.set_tail(old_tail)
             self._parent_item.set_head(old_head)
-
-            from commands import ResizeItemCommand
+            from fbd_lab.commands import ResizeItemCommand
             cmd = ResizeItemCommand(self._parent_item, old_tail, old_head,
                                     new_tail, new_head)
             push_fn(cmd)
+
+
+# ─── TwoEndpointItem ─────────────────────────────────────────────────────────
+
+class TwoEndpointItem(LabelPropertiesMixin, QGraphicsPathItem):
+    """Base class for items defined by a tail and head point.
+
+    Provides: tail/head storage, control point handles, move_by, set_tail,
+    set_head, label_anchor, drag_anchor, _get_handles, and base to_dict/from_dict.
+
+    Subclass must implement:
+    - _rebuild_path()  — build the QPainterPath and call setPath()
+    - paint()
+    """
+
+    def __init__(self, tail: QPointF, head: QPointF, handle_radius: int = DEFAULT_HANDLE_RADIUS,
+                 parent=None):
+        super().__init__(parent)
+        self._tail = QPointF(tail)
+        self._head = QPointF(head)
+
+        self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
+        self.setZValue(1)
+
+        self._tail_handle = BaseControlPoint(tail.x(), tail.y(), self,
+                                             is_head=False, handle_radius=handle_radius)
+        self._head_handle = BaseControlPoint(head.x(), head.y(), self,
+                                             is_head=True, handle_radius=handle_radius)
+
+        self._label = BaseLabel(self)
+        self._init_label_properties()
+        self._label.set_font_size(self._font_size)
+
+    # --- LabelPropertiesMixin overrides ---
+
+    def label_anchor(self) -> QPointF:
+        return (self._tail + self._head) / 2
+
+    def drag_anchor(self) -> QPointF:
+        return QPointF(self._tail)
+
+    def _get_handles(self) -> list:
+        return [self._tail_handle, self._head_handle]
+
+    # --- Properties ---
+
+    @property
+    def tail(self) -> QPointF:
+        return QPointF(self._tail)
+
+    @property
+    def head(self) -> QPointF:
+        return QPointF(self._head)
+
+    # --- Movement ---
+
+    def move_by(self, delta: QPointF):
+        self._tail += delta
+        self._head += delta
+        self._tail_handle.setPos(self._tail)
+        self._head_handle.setPos(self._head)
+        self._rebuild_path()
+
+    def set_tail(self, point: QPointF):
+        self._tail = QPointF(point)
+        self._tail_handle.setPos(point)
+        self._rebuild_path()
+
+    def set_head(self, point: QPointF):
+        self._head = QPointF(point)
+        self._head_handle.setPos(point)
+        self._rebuild_path()
+
+    # --- Style ---
+
+    def refresh_style(self):
+        r = self._tail_handle.rect().width() / 2
+        self._tail_handle.setRect(-r, -r, 2 * r, 2 * r)
+        self._head_handle.setRect(-r, -r, 2 * r, 2 * r)
+        self._rebuild_path()
+        self.update()
+
+    # --- Abstract ---
+
+    def _rebuild_path(self):
+        raise NotImplementedError
+
+    # --- Paint helper ---
+
+    def _paint_preamble(self) -> tuple[bool, "QColor"]:
+        """Common paint() setup. Returns (is_selected, color)."""
+        is_sel = self.isSelected()
+        color = SELECTED_COLOR if is_sel else self._get_item_color_with_opacity()
+        self._tail_handle.setVisible(is_sel)
+        self._head_handle.setVisible(is_sel)
+        self._label.update_color(is_sel)
+        return is_sel, color
+
+    # --- Serialization ---
+
+    def _endpoint_to_dict(self) -> dict:
+        d = self._base_to_dict()
+        d["tail"] = [self._tail.x(), self._tail.y()]
+        d["head"] = [self._head.x(), self._head.y()]
+        return d
+
+    @classmethod
+    def _endpoint_from_dict(cls, data: dict, **kwargs) -> "TwoEndpointItem":
+        item = cls(
+            QPointF(data["tail"][0], data["tail"][1]),
+            QPointF(data["head"][0], data["head"][1]),
+            **kwargs,
+        )
+        item._base_from_dict(data)
+        return item

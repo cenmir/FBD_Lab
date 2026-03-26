@@ -6,7 +6,7 @@ from PyQt6.QtWidgets import QGraphicsObject, QGraphicsItem
 from PyQt6.QtGui import QPainter, QPen, QBrush, QColor, QCursor, QPixmap, QPainterPath
 from PyQt6.QtCore import Qt, QRectF, QPointF
 
-from base_item import SELECTED_COLOR
+from fbd_lab.items.base import SELECTED_COLOR
 
 
 class RotationHandleItem(QGraphicsObject):
