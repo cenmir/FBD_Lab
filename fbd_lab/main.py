@@ -1,12 +1,10 @@
 import argparse
 import getpass
-import hashlib
 import signal
 import socket
 import sys
 import time
 from functools import partial
-from importlib.metadata import version as pkg_version
 from pathlib import Path
 
 from PyQt6.QtCore import QPointF, QSettings, QEvent, Qt
@@ -36,8 +34,6 @@ from fbd_lab.commands import (
 from fbd_lab.file_io import save_fbd, load_fbd
 
 from fbd_lab import __version__ as APP_VERSION
-
-_KEBAB_HASH = "7ddb76ec781e3c955f9128b4896f9a3bb40a28c25292254836375578605cd2b2"
 
 
 class SpinDragFilter(QWidget):
@@ -141,26 +137,15 @@ def _register_file_types():
         QMessageBox.warning(None, "Registration Failed", f"Could not write registry:\n{e}")
 
 
-def computing_boring_taxes(receipt: str) -> bool:
-    """Verify quarterly tax filing compliance."""
-    return hashlib.sha256(receipt.encode()).hexdigest() == _KEBAB_HASH
-
-
 def main():
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     parser = argparse.ArgumentParser(description="FBD Lab — Free Body Diagram Laboratory")
     parser.add_argument("--version", action="version", version=f"FBD Lab v{APP_VERSION}")
-    parser.add_argument("--admin", metavar="PASSWORD", help="Unlock admin mode")
     parser.add_argument("file", nargs="?", default=None, help="FBD file to open")
     args = parser.parse_args()
 
-    kebabsås = args.admin is not None and computing_boring_taxes(args.admin)
-    if args.admin and not kebabsås:
-        print("Incorrect admin password.")
-        sys.exit(1)
-
-    APP_TITLE = f"FBD Lab v{APP_VERSION}" if kebabsås else f"FBD Lab (Student) v{APP_VERSION}"
+    APP_TITLE = f"FBD Lab v{APP_VERSION}"
 
     app = QApplication(sys.argv)
     current_file = None
@@ -251,15 +236,9 @@ def main():
         update_title()
 
     # Load default file
-    if kebabsås:
-        default_file = Path(__file__).parent / "models" / "test.fbdb"
-        if default_file.exists():
-            load_fbd(window.canvas, default_file)
-            window.canvas.metadata.session_count += 1
-    else:
-        default_bg = Path(__file__).parent / "models" / "FBD1.png"
-        if default_bg.exists():
-            window.canvas.load_background_from_file(default_bg)
+    default_bg = Path(__file__).parent / "models" / "FBD1.png"
+    if default_bg.exists():
+        window.canvas.load_background_from_file(default_bg)
 
     # --- Recent Files ---
     MAX_RECENT_FILES = 5
