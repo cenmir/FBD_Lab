@@ -54,9 +54,9 @@ def build_exe(version: str) -> Path:
         "--windowed",
         "--name", build_name,
         "--icon", str(ROOT / "fbd_lab" / "ui" / "icon.png"),
-        "--add-data", f"{ROOT / 'fbd_lab' / 'ui'}{sep}fbd_lab/ui",
-        "--add-data", f"{ROOT / 'fbd_lab' / 'fonts'}{sep}fbd_lab/fonts",
-        "--add-data", f"{ROOT / 'fbd_lab' / 'models' / 'FBD1.png'}{sep}fbd_lab/models",
+        "--add-data", f"{ROOT / 'fbd_lab' / 'ui'}{sep}ui",
+        "--add-data", f"{ROOT / 'fbd_lab' / 'fonts'}{sep}fonts",
+        "--add-data", f"{ROOT / 'fbd_lab' / 'models' / 'FBD1.png'}{sep}models",
         "--add-data", f"{ROOT / 'pyproject.toml'}{sep}.",
         str(ROOT / "fbd_lab" / "main.py"),
     ])
