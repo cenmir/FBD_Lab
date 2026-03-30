@@ -21,3 +21,4 @@ FBD_autograder/
 set_admin_password.py
 build_release.py
 *.spec
+test.fbdb
