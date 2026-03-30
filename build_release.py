@@ -125,12 +125,12 @@ def main():
     version = get_version()
     print(f"Version: {version}")
 
-    if not args.force:
-        check_git_clean()
-
-    # Always push before building to ensure the release matches pushed code
-    print("Pushing to origin...")
-    run(["git", "push", "origin", "main"])
+    if not args.no_release:
+        if not args.force:
+            check_git_clean()
+        # Push before building to ensure the release matches pushed code
+        print("Pushing to origin...")
+        run(["git", "push", "origin", "main"])
 
     exe_path = build_exe(version)
 
