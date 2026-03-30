@@ -67,6 +67,8 @@ def build_exe(version: str) -> Path:
         sys.exit(1)
 
     exe_path = DIST_DIR / f"{release_name}.exe"
+    if exe_path.exists():
+        exe_path.unlink()
     shutil.move(built_path, exe_path)
 
     print(f"Built: {exe_path} ({exe_path.stat().st_size / 1024 / 1024:.1f} MB)")
