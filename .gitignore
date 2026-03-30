@@ -22,3 +22,4 @@ set_admin_password.py
 build_release.py
 *.spec
 test.fbdb
+uv.lock
