@@ -9,7 +9,7 @@ from PyQt6.QtWidgets import (
     QGraphicsSceneMouseEvent, QStyleOptionGraphicsItem, QWidget,
 )
 
-from fbd_lab.items.base import BaseLabel, LabelPropertiesMixin, SELECTED_COLOR
+from fbd_lab.items.base import BaseLabel, BaseItemProperties, LabelProperties, SELECTED_COLOR
 
 DEFAULT_RADIUS = 12.0
 MIN_RADIUS = 5.0
@@ -65,7 +65,7 @@ class CogResizeHandle(QGraphicsEllipseItem):
             push_fn(cmd)
 
 
-class CogItem(LabelPropertiesMixin, QGraphicsPathItem):
+class CogItem(BaseItemProperties, LabelProperties, QGraphicsPathItem):
     """A standalone center-of-gravity symbol — alternating black/white quadrant circle."""
 
     def __init__(self, pos: QPointF, parent=None):
@@ -80,12 +80,13 @@ class CogItem(LabelPropertiesMixin, QGraphicsPathItem):
         self._handle = CogResizeHandle(self)
 
         self._label = BaseLabel(self)
-        self._init_label_properties()
+        self._init_base_properties()
+        self._init_label_props()
         self._label.set_font_size(self._font_size)
 
         self._rebuild()
 
-    # --- LabelPropertiesMixin overrides ---
+    # --- Mixin overrides ---
 
     def label_anchor(self) -> QPointF:
         return QPointF(self.pos())
@@ -189,7 +190,7 @@ class CogItem(LabelPropertiesMixin, QGraphicsPathItem):
     # --- Serialization ---
 
     def to_dict(self) -> dict:
-        d = self._base_to_dict()
+        d = self._label_to_dict()
         d["center"] = [self.pos().x(), self.pos().y()]
         d["radius"] = self._radius
         return d
@@ -198,7 +199,7 @@ class CogItem(LabelPropertiesMixin, QGraphicsPathItem):
     def from_dict(cls, data: dict) -> "CogItem":
         cx, cy = data["center"]
         item = cls(QPointF(cx, cy))
-        item._base_from_dict(data)
+        item._label_from_dict(data)
         item._radius = data.get("radius", DEFAULT_RADIUS)
         item._rebuild()
         return item

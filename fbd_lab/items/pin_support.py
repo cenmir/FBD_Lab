@@ -17,7 +17,10 @@ from PyQt6.QtWidgets import (
     QGraphicsSceneMouseEvent, QStyleOptionGraphicsItem, QWidget,
 )
 
-from fbd_lab.items.base import BaseLabel, LabelPropertiesMixin, SELECTED_COLOR
+from fbd_lab.items.base import (
+    BaseLabel, BaseItemProperties, FillProperties, EdgeProperties, LabelProperties,
+    SELECTED_COLOR,
+)
 
 DEFAULT_HEIGHT = 40.0       # triangle height
 DEFAULT_BASE_WIDTH = 80.0   # base rectangle width (wider than triangle)
@@ -132,7 +135,7 @@ class _BaseWidthHandle(QGraphicsEllipseItem):
 # Item
 # ---------------------------------------------------------------------------
 
-class PinSupportItem(LabelPropertiesMixin, QGraphicsPathItem):
+class PinSupportItem(BaseItemProperties, FillProperties, EdgeProperties, LabelProperties, QGraphicsPathItem):
     """A pin (hinge) support symbol.
 
     Origin (0,0) is at the pin point (top of triangle).
@@ -140,8 +143,8 @@ class PinSupportItem(LabelPropertiesMixin, QGraphicsPathItem):
     _base_width: the wide base rectangle width (independent of triangle)
     """
 
-    def _default_item_color(self) -> QColor:
-        return QColor(COLOR_BODY)
+    _DEFAULT_FILL_COLOR = QColor(COLOR_BODY)
+    _DEFAULT_EDGE_COLOR = QColor(COLOR_EDGE)
 
     def __init__(self, pos: QPointF, parent=None):
         super().__init__(parent)
@@ -158,12 +161,15 @@ class PinSupportItem(LabelPropertiesMixin, QGraphicsPathItem):
         self._base_handle = _BaseWidthHandle(self)
 
         self._label = BaseLabel(self)
-        self._init_label_properties()
+        self._init_base_properties()
+        self._init_fill_properties()
+        self._init_edge_properties()
+        self._init_label_props()
         self._label.set_font_size(self._font_size)
 
         self._rebuild()
 
-    # --- LabelPropertiesMixin overrides ---
+    # --- Mixin overrides ---
 
     def label_anchor(self) -> QPointF:
         return QPointF(self.pos())
@@ -285,15 +291,17 @@ class PinSupportItem(LabelPropertiesMixin, QGraphicsPathItem):
         pin_r = h * PIN_HOLE_RATIO
         base_h = h * BASE_HEIGHT_RATIO
 
-        body_color = self._get_item_color_with_opacity()
+        fill_col = QColor(self._fill_color)
+        fill_col.setAlpha(self._fill_opacity)
         base_color = QColor(
-            max(0, body_color.red() - 60),
-            max(0, body_color.green() - 50),
-            max(0, body_color.blue() - 30),
-            body_color.alpha(),
+            max(0, fill_col.red() - 60),
+            max(0, fill_col.green() - 50),
+            max(0, fill_col.blue() - 30),
+            fill_col.alpha(),
         )
-        edge_color = SELECTED_COLOR if is_sel else COLOR_EDGE
-        pen = QPen(edge_color, 1.5)
+        edge_col = QColor(SELECTED_COLOR if is_sel else self._edge_color)
+        edge_col.setAlpha(self._edge_opacity)
+        pen = QPen(edge_col, self._outline_thickness)
 
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -309,12 +317,12 @@ class PinSupportItem(LabelPropertiesMixin, QGraphicsPathItem):
         tri_path.closeSubpath()
 
         painter.setPen(pen)
-        painter.setBrush(QBrush(body_color))
+        painter.setBrush(QBrush(fill_col))
         painter.drawPath(tri_path)
 
         # Pin hole
         if self._show_pin_hole:
-            painter.setBrush(QBrush(QColor(255, 255, 255, body_color.alpha())))
+            painter.setBrush(QBrush(QColor(255, 255, 255, fill_col.alpha())))
             painter.drawEllipse(QPointF(0, round_r), pin_r, pin_r)
 
         # --- Base rectangle (fades to transparent) ---
@@ -331,7 +339,9 @@ class PinSupportItem(LabelPropertiesMixin, QGraphicsPathItem):
     # --- Serialization ---
 
     def to_dict(self) -> dict:
-        d = self._base_to_dict()
+        d = self._label_to_dict()
+        d.update(self._fill_to_dict())
+        d.update(self._edge_to_dict())
         d["center"] = [self.pos().x(), self.pos().y()]
         d["height"] = self._height
         d["base_width"] = self._base_width
@@ -342,7 +352,9 @@ class PinSupportItem(LabelPropertiesMixin, QGraphicsPathItem):
     def from_dict(cls, data: dict) -> "PinSupportItem":
         cx, cy = data["center"]
         item = cls(QPointF(cx, cy))
-        item._base_from_dict(data)
+        item._label_from_dict(data)
+        item._fill_from_dict(data)
+        item._edge_from_dict(data)
         item._height = data.get("height", DEFAULT_HEIGHT)
         item._base_width = data.get("base_width", DEFAULT_BASE_WIDTH)
         item._show_pin_hole = data.get("show_pin_hole", True)

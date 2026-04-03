@@ -7,7 +7,10 @@ from fbd_lab.items.base import (  # noqa: F401
     # Functions
     latex_to_unicode, label_to_html, get_cm_font,
     # Base classes
-    BaseLabel, BaseControlPoint, LabelPropertiesMixin, TwoEndpointItem,
+    BaseLabel, BaseControlPoint,
+    BaseItemProperties, StrokeProperties, FillProperties, EdgeProperties,
+    LabelProperties,
+    TwoEndpointItem,
 )
 
 from fbd_lab.items.vector import VectorItem, VectorSettings, vector_settings  # noqa: F401

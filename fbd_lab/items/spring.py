@@ -24,15 +24,15 @@ DEFAULT_THICKNESS = 2
 class SpringItem(TwoEndpointItem):
     """A zigzag spring line from tail to head."""
 
-    def _default_item_color(self) -> QColor:
+    def _default_stroke_color(self) -> QColor:
         return QColor(SPRING_COLOR)
 
     def __init__(self, tail: QPointF, head: QPointF, parent=None):
         self._coils = DEFAULT_COILS
         self._amplitude = DEFAULT_AMPLITUDE
         self._thickness = DEFAULT_THICKNESS
-        self._item_color = QColor(SPRING_COLOR)
-        self._item_opacity = 255
+        self._stroke_color = QColor(SPRING_COLOR)
+        self._stroke_opacity = 255
 
         super().__init__(tail, head, handle_radius=DEFAULT_HANDLE_RADIUS, parent=parent)
 
@@ -161,7 +161,8 @@ class SpringItem(TwoEndpointItem):
             QPointF(data["tail"][0], data["tail"][1]),
             QPointF(data["head"][0], data["head"][1]),
         )
-        item._base_from_dict(data)
+        item._stroke_from_dict(data)
+        item._label_from_dict(data)
         item._coils = data.get("coils", DEFAULT_COILS)
         item._amplitude = data.get("amplitude", DEFAULT_AMPLITUDE)
         item._thickness = data.get("thickness", DEFAULT_THICKNESS)

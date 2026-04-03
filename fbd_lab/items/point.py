@@ -10,7 +10,9 @@ from PyQt6.QtWidgets import (
     QStyleOptionGraphicsItem, QWidget,
 )
 
-from fbd_lab.items.base import BaseLabel, LabelPropertiesMixin, SELECTED_COLOR
+from fbd_lab.items.base import (
+    BaseLabel, BaseItemProperties, StrokeProperties, LabelProperties, SELECTED_COLOR,
+)
 
 POINT_COLORS = {
     "Red": QColor(220, 50, 50),
@@ -38,28 +40,30 @@ class PointSettings:
 point_settings = PointSettings()  # global singleton
 
 
-class PointItem(LabelPropertiesMixin, QGraphicsEllipseItem):
+class PointItem(BaseItemProperties, StrokeProperties, LabelProperties, QGraphicsEllipseItem):
     """A point marker (filled circle) at a single position."""
 
-    def _default_item_color(self) -> QColor:
+    def _default_stroke_color(self) -> QColor:
         return QColor(point_settings.color)
 
     def __init__(self, pos: QPointF, parent=None):
         super().__init__(parent)
         self._pos = QPointF(pos)
-        self._item_color = QColor(point_settings.color)
-        self._item_opacity = 255
+        self._stroke_color = QColor(point_settings.color)
+        self._stroke_opacity = 255
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setZValue(1)
 
         self._label = BaseLabel(self)
-        self._init_label_properties()
+        self._init_base_properties()
+        self._init_stroke_properties()
+        self._init_label_props()
         self._label.set_font_size(self._font_size)
 
         self._rebuild()
 
-    # --- LabelPropertiesMixin overrides ---
+    # --- Mixin overrides ---
 
     def label_anchor(self) -> QPointF:
         return QPointF(self._pos)
@@ -106,7 +110,7 @@ class PointItem(LabelPropertiesMixin, QGraphicsEllipseItem):
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None):
         is_sel = self.isSelected()
-        color = SELECTED_COLOR if is_sel else self._get_item_color_with_opacity()
+        color = SELECTED_COLOR if is_sel else self._get_stroke_color_with_opacity()
 
         self._label.update_color(is_sel)
 
@@ -118,12 +122,14 @@ class PointItem(LabelPropertiesMixin, QGraphicsEllipseItem):
     # --- Serialization ---
 
     def to_dict(self) -> dict:
-        d = self._base_to_dict()
+        d = self._label_to_dict()
+        d.update(self._stroke_to_dict())
         d["pos"] = [self._pos.x(), self._pos.y()]
         return d
 
     @classmethod
     def from_dict(cls, data: dict) -> "PointItem":
         pt = cls(QPointF(data["pos"][0], data["pos"][1]))
-        pt._base_from_dict(data)
+        pt._stroke_from_dict(data)
+        pt._label_from_dict(data)
         return pt

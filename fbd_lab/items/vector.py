@@ -11,7 +11,8 @@ from PyQt6.QtWidgets import (
 )
 
 from fbd_lab.items.base import (
-    TwoEndpointItem, BaseLabel, BaseControlPoint, LabelPropertiesMixin,
+    TwoEndpointItem, BaseLabel, BaseControlPoint,
+    StrokeProperties,
     latex_to_unicode, label_to_html,
     SELECTED_COLOR, DEFAULT_HANDLE_RADIUS, DEFAULT_FONT_SIZE,
     LABEL_COLOR, DEFAULT_LABEL_OFFSET, SNAP_ANGLE_DEG,
@@ -40,14 +41,14 @@ class VectorItem(TwoEndpointItem):
 
     _DEFAULT_ITEM_COLOR = VECTOR_COLOR
 
-    def _default_item_color(self) -> QColor:
+    def _default_stroke_color(self) -> QColor:
         return QColor(VECTOR_COLOR)
 
     def __init__(self, tail: QPointF, head: QPointF, parent=None):
         self._magnitude = DEFAULT_MAGNITUDE
         self._show_magnitude = False
-        self._item_color = QColor(VECTOR_COLOR)
-        self._item_opacity = 255
+        self._stroke_color = QColor(VECTOR_COLOR)
+        self._stroke_opacity = 255
 
         super().__init__(tail, head, handle_radius=vector_settings.handle_radius, parent=parent)
 
@@ -100,7 +101,7 @@ class VectorItem(TwoEndpointItem):
 
     def _rebuild_pens(self):
         s = vector_settings
-        color = self._get_item_color_with_opacity()
+        color = self._get_stroke_color_with_opacity()
         self._pen_normal = QPen(color, s.arrow_thickness)
         self._pen_selected = QPen(SELECTED_COLOR, s.arrow_thickness)
         self._shaft_pen_normal = QPen(color, s.shaft_thickness)
@@ -109,15 +110,15 @@ class VectorItem(TwoEndpointItem):
         self._shaft_pen_selected.setCapStyle(Qt.PenCapStyle.RoundCap)
         self.setPen(self._pen_normal)
 
-    @LabelPropertiesMixin.item_color.setter
-    def item_color(self, value: QColor):
-        self._item_color = QColor(value)
+    @StrokeProperties.stroke_color.setter
+    def stroke_color(self, value: QColor):
+        self._stroke_color = QColor(value)
         self._rebuild_pens()
         self.update()
 
-    @LabelPropertiesMixin.item_opacity.setter
-    def item_opacity(self, value: int):
-        self._item_opacity = max(0, min(255, value))
+    @StrokeProperties.stroke_opacity.setter
+    def stroke_opacity(self, value: int):
+        self._stroke_opacity = max(0, min(255, value))
         self._rebuild_pens()
         self.update()
 
@@ -210,7 +211,8 @@ class VectorItem(TwoEndpointItem):
             QPointF(data["tail"][0], data["tail"][1]),
             QPointF(data["head"][0], data["head"][1]),
         )
-        vec._base_from_dict(data)
+        vec._stroke_from_dict(data)
+        vec._label_from_dict(data)
         raw_mag = data.get("magnitude", DEFAULT_MAGNITUDE)
         if isinstance(raw_mag, (int, float)):
             vec._magnitude = "" if raw_mag == 100.0 else f"{raw_mag:.10g}"

@@ -20,7 +20,13 @@ from PyQt6.QtGui import (
 from PyQt6 import uic
 
 from fbd_lab.canvas import FBDCanvas, ToolMode, SessionMetadata  # noqa: F401 — FBDCanvas needed for uic promotion
-from fbd_lab.items import vector_settings, point_settings, POINT_COLORS, line_settings, moment_settings
+from fbd_lab.items import (
+    vector_settings, point_settings, POINT_COLORS, line_settings, moment_settings,
+    FillProperties, EdgeProperties, LabelProperties,
+    TwoEndpointItem, VectorItem, PointItem, DirectionItem, LineItem,
+    MomentItem, RectangleItem, PolygonItem, EllipseItem,
+    TextItem, CogItem, SpringItem, SquiggleItem, PinSupportItem,
+)
 from fbd_lab.commands import (
     ResizeVectorCommand, ChangeLabelTextCommand, ChangeLabelVisibilityCommand,
     ChangeMagnitudeCommand, ChangeShowMagnitudeCommand, ChangeFontSizeCommand,
@@ -801,12 +807,19 @@ def main():
     def _set_button_color(btn, color: QColor):
         btn.setStyleSheet(f"background-color: {color.name()}; border: 1px solid #888;")
 
-    # Label background checkbox (common to all items with labels)
+    # Label background checkbox + color button (common to all items with labels)
     _label_bg_label = QLabel("Label BG:")
     _label_bg_check = QCheckBox()
+    _label_bg_color_btn = _make_color_button("labelBgColorButton")
+    _label_bg_row = QWidget()
+    _label_bg_row_layout = QHBoxLayout(_label_bg_row)
+    _label_bg_row_layout.setContentsMargins(0, 0, 0, 0)
+    _label_bg_row_layout.addWidget(_label_bg_check)
+    _label_bg_row_layout.addWidget(_label_bg_color_btn)
+    _label_bg_row_layout.addStretch()
     next_row = _form.rowCount()
     _form.setWidget(next_row, _form.ItemRole.LabelRole, _label_bg_label)
-    _form.setWidget(next_row, _form.ItemRole.FieldRole, _label_bg_check)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _label_bg_row)
 
     # --- Item color/opacity widgets (for vector, direction, point, moment) ---
     _item_color_divider = QFrame()
@@ -1023,7 +1036,6 @@ def main():
 
     _line_only_widgets = [
         window.bodyThicknessLabel, window.bodyThicknessSpinBox,
-        window.outlineThicknessLabel, window.outlineThicknessSpinBox,
         _line_arrow_tail_label, _line_arrow_tail_check,
         _line_arrow_head_label, _line_arrow_head_check,
         _line_dashed_label, _line_dashed_check,
@@ -1077,27 +1089,29 @@ def main():
         _reverse_moment_label, _reverse_moment_check,
     ]
 
+    def _sync_label_widgets(item):
+        """Sync the common label controls from any LabelProperties item."""
+        window.showLabelCheckBox.setChecked(item.label_visible)
+        window.labelTextLineEdit.setText(item.label_text)
+        window.fontSizeSpinBox.setValue(item.font_size)
+        window.boldButton.setChecked(item.label_bold)
+        window.italicButton.setChecked(item.label_italic)
+
+    def _sync_endpoint_widgets(item):
+        """Sync the start/end coordinate spinboxes from a TwoEndpointItem."""
+        window.startXSpinBox.setValue(item.tail.x())
+        window.startYSpinBox.setValue(item.tail.y())
+        window.endXSpinBox.setValue(item.head.x())
+        window.endYSpinBox.setValue(item.head.y())
+
     def sync_panel():
         nonlocal _updating_panel
         try:
-            vec = window.canvas.get_selected_vector()
-            point = window.canvas.get_selected_point()
-            direction = window.canvas.get_selected_direction()
-            line = window.canvas.get_selected_line()
-            moment = window.canvas.get_selected_moment()
-            rect = window.canvas.get_selected_rectangle()
-            polygon = window.canvas.get_selected_polygon()
-            ellipse = window.canvas.get_selected_ellipse()
-            text = window.canvas.get_selected_text()
-            cog = window.canvas.get_selected_cog()
-            pin_support = window.canvas.get_selected_pin_support()
+            item = window.canvas.get_selected_any()
         except RuntimeError:
             return  # scene already destroyed during shutdown
 
-        spring = window.canvas.get_selected_spring()
-        squiggle = window.canvas.get_selected_squiggle()
-
-        if vec is None and point is None and direction is None and line is None and moment is None and rect is None and polygon is None and ellipse is None and text is None and spring is None and squiggle is None and cog is None and pin_support is None:
+        if item is None:
             window.propertiesGroupBox.setVisible(False)
             return
 
@@ -1105,200 +1119,119 @@ def main():
         _updating_panel = True
 
         # Hide all conditional widget groups first
-        for w in _start_end_widgets + _magnitude_widgets + _point_only_widgets + _direction_only_widgets + _line_only_widgets + _spring_only_widgets + _moment_only_widgets + _item_color_widgets + _shape_style_widgets + _rect_only_widgets + _pin_support_widgets + [_label_bg_label, _label_bg_check]:
+        for w in _start_end_widgets + _magnitude_widgets + _point_only_widgets + _direction_only_widgets + _line_only_widgets + _spring_only_widgets + _moment_only_widgets + _item_color_widgets + _shape_style_widgets + _rect_only_widgets + _pin_support_widgets + [_label_bg_label, _label_bg_row]:
             w.setVisible(False)
 
-        if vec is not None:
+        # --- Type-specific widgets ---
+
+        if isinstance(item, VectorItem):
             for w in _start_end_widgets + _magnitude_widgets:
                 w.setVisible(True)
+            _sync_endpoint_widgets(item)
+            window.magnitudeLineEdit.setText(item.magnitude)
+            window.showMagnitudeCheckBox.setChecked(item.show_magnitude)
 
-            window.startXSpinBox.setValue(vec.tail.x())
-            window.startYSpinBox.setValue(vec.tail.y())
-            window.endXSpinBox.setValue(vec.head.x())
-            window.endYSpinBox.setValue(vec.head.y())
-            window.magnitudeLineEdit.setText(vec.magnitude)
-            window.showMagnitudeCheckBox.setChecked(vec.show_magnitude)
-            window.showLabelCheckBox.setChecked(vec.label_visible)
-            window.labelTextLineEdit.setText(vec.label_text)
-            window.fontSizeSpinBox.setValue(vec.font_size)
-            window.boldButton.setChecked(vec.label_bold)
-            window.italicButton.setChecked(vec.label_italic)
-
-        elif direction is not None:
+        elif isinstance(item, DirectionItem):
             for w in _start_end_widgets + _direction_only_widgets:
                 w.setVisible(True)
+            _sync_endpoint_widgets(item)
+            window.showArrowheadCheckBox.setChecked(item.show_arrowhead)
 
-            window.startXSpinBox.setValue(direction.tail.x())
-            window.startYSpinBox.setValue(direction.tail.y())
-            window.endXSpinBox.setValue(direction.head.x())
-            window.endYSpinBox.setValue(direction.head.y())
-            window.showArrowheadCheckBox.setChecked(direction.show_arrowhead)
-            window.showLabelCheckBox.setChecked(direction.label_visible)
-            window.labelTextLineEdit.setText(direction.label_text)
-            window.fontSizeSpinBox.setValue(direction.font_size)
-            window.boldButton.setChecked(direction.label_bold)
-            window.italicButton.setChecked(direction.label_italic)
-
-        elif point is not None:
+        elif isinstance(item, PointItem):
             for w in _point_only_widgets:
                 w.setVisible(True)
+            window.posXSpinBox.setValue(item.point_pos.x())
+            window.posYSpinBox.setValue(item.point_pos.y())
 
-            window.posXSpinBox.setValue(point.point_pos.x())
-            window.posYSpinBox.setValue(point.point_pos.y())
-            window.showLabelCheckBox.setChecked(point.label_visible)
-            window.labelTextLineEdit.setText(point.label_text)
-            window.fontSizeSpinBox.setValue(point.font_size)
-            window.boldButton.setChecked(point.label_bold)
-            window.italicButton.setChecked(point.label_italic)
-
-        elif line is not None:
+        elif isinstance(item, LineItem):
             for w in _start_end_widgets + _line_only_widgets:
                 w.setVisible(True)
+            _sync_endpoint_widgets(item)
+            window.bodyThicknessSpinBox.setValue(item.body_thickness)
+            _line_arrow_tail_check.setChecked(item.show_arrow_tail)
+            _line_arrow_head_check.setChecked(item.show_arrow_head)
+            _line_dashed_check.setChecked(item.dashed)
 
-            window.startXSpinBox.setValue(line.tail.x())
-            window.startYSpinBox.setValue(line.tail.y())
-            window.endXSpinBox.setValue(line.head.x())
-            window.endYSpinBox.setValue(line.head.y())
-            window.bodyThicknessSpinBox.setValue(line.body_thickness)
-            window.outlineThicknessSpinBox.setValue(line.outline_thickness)
-            _line_arrow_tail_check.setChecked(line.show_arrow_tail)
-            _line_arrow_head_check.setChecked(line.show_arrow_head)
-            _line_dashed_check.setChecked(line.dashed)
-            window.showLabelCheckBox.setChecked(line.label_visible)
-            window.labelTextLineEdit.setText(line.label_text)
-            window.fontSizeSpinBox.setValue(line.font_size)
-            window.boldButton.setChecked(line.label_bold)
-            window.italicButton.setChecked(line.label_italic)
-
-        elif moment is not None:
+        elif isinstance(item, MomentItem):
             for w in _moment_only_widgets:
                 w.setVisible(True)
+            window.centerXSpinBox.setValue(item.center.x())
+            window.centerYSpinBox.setValue(item.center.y())
+            window.radiusSpinBox.setValue(item.radius)
+            window.startAngleSpinBox.setValue(item.start_angle)
+            window.spanAngleSpinBox.setValue(item.span_angle)
+            _reverse_moment_check.setChecked(item.reversed)
 
-            window.centerXSpinBox.setValue(moment.center.x())
-            window.centerYSpinBox.setValue(moment.center.y())
-            window.radiusSpinBox.setValue(moment.radius)
-            window.startAngleSpinBox.setValue(moment.start_angle)
-            window.spanAngleSpinBox.setValue(moment.span_angle)
-            _reverse_moment_check.setChecked(moment.reversed)
-            window.showLabelCheckBox.setChecked(moment.label_visible)
-            window.labelTextLineEdit.setText(moment.label_text)
-            window.fontSizeSpinBox.setValue(moment.font_size)
-            window.boldButton.setChecked(moment.label_bold)
-            window.italicButton.setChecked(moment.label_italic)
-
-        # Spring properties
-        if spring is not None:
+        elif isinstance(item, SpringItem):
             for w in _start_end_widgets + _spring_only_widgets:
                 w.setVisible(True)
-            window.startXSpinBox.setValue(spring.tail.x())
-            window.startYSpinBox.setValue(spring.tail.y())
-            window.endXSpinBox.setValue(spring.head.x())
-            window.endYSpinBox.setValue(spring.head.y())
-            _spring_coils_spin.setValue(spring.coils)
-            _spring_amplitude_spin.setValue(int(spring.amplitude))
-            _spring_thickness_spin.setValue(spring.thickness)
-            window.showLabelCheckBox.setChecked(spring.label_visible)
-            window.labelTextLineEdit.setText(spring.label_text)
-            window.fontSizeSpinBox.setValue(spring.font_size)
-            window.boldButton.setChecked(spring.label_bold)
-            window.italicButton.setChecked(spring.label_italic)
+            _sync_endpoint_widgets(item)
+            _spring_coils_spin.setValue(item.coils)
+            _spring_amplitude_spin.setValue(int(item.amplitude))
+            _spring_thickness_spin.setValue(item.thickness)
 
-        # Squiggle properties (shares spring property widgets)
-        if squiggle is not None:
+        elif isinstance(item, SquiggleItem):
             for w in _start_end_widgets + _spring_only_widgets:
                 w.setVisible(True)
-            window.startXSpinBox.setValue(squiggle.tail.x())
-            window.startYSpinBox.setValue(squiggle.tail.y())
-            window.endXSpinBox.setValue(squiggle.head.x())
-            window.endYSpinBox.setValue(squiggle.head.y())
-            _spring_coils_spin.setValue(int(squiggle.waves))
-            _spring_amplitude_spin.setValue(int(squiggle.amplitude))
-            _spring_thickness_spin.setValue(squiggle.thickness)
-            window.showLabelCheckBox.setChecked(squiggle.label_visible)
-            window.labelTextLineEdit.setText(squiggle.label_text)
-            window.fontSizeSpinBox.setValue(squiggle.font_size)
-            window.boldButton.setChecked(squiggle.label_bold)
-            window.italicButton.setChecked(squiggle.label_italic)
+            _sync_endpoint_widgets(item)
+            _spring_coils_spin.setValue(int(item.waves))
+            _spring_amplitude_spin.setValue(int(item.amplitude))
+            _spring_thickness_spin.setValue(item.thickness)
 
-        # Item color/opacity (for vector, direction, point, moment, text, spring, squiggle, pin_support)
-        color_item = vec or direction or point or moment or text or spring or squiggle or pin_support
-        if color_item is not None:
+        elif isinstance(item, PinSupportItem):
+            for w in _pin_support_widgets:
+                w.setVisible(True)
+            _show_pin_hole_check.setChecked(item.show_pin_hole)
+
+        # --- Mixin-based widget groups ---
+
+        # Stroke color/opacity (items with user-visible stroke — excludes shapes, lines, cogs)
+        if not isinstance(item, (FillProperties, CogItem)):
             for w in _item_color_widgets:
                 w.setVisible(True)
-            _set_button_color(_item_color_btn, color_item.item_color)
-            _item_opacity_spin.setValue(color_item.item_opacity)
+            _set_button_color(_item_color_btn, item.item_color)
+            _item_opacity_spin.setValue(item.item_opacity)
 
-        # Shape style panel (rectangle, polygon, or ellipse)
-        shape = rect or polygon or ellipse
-        if shape is not None:
+        # Fill + edge style (shapes only)
+        if isinstance(item, FillProperties):
             for w in _shape_style_widgets:
                 w.setVisible(True)
-            _set_button_color(_fill_color_btn, shape.fill_color)
-            _fill_opacity_spin.setValue(shape.fill_opacity)
-            _set_button_color(_edge_color_btn, shape.edge_color)
-            _edge_opacity_spin.setValue(shape.edge_opacity)
-            _edge_thickness_spin.setValue(shape.outline_thickness)
-            window.showLabelCheckBox.setChecked(shape.label_visible)
-            window.labelTextLineEdit.setText(shape.label_text)
-            window.fontSizeSpinBox.setValue(shape.font_size)
-            window.boldButton.setChecked(shape.label_bold)
-            window.italicButton.setChecked(shape.label_italic)
+            _set_button_color(_fill_color_btn, item.fill_color)
+            _fill_opacity_spin.setValue(item.fill_opacity)
+            _set_button_color(_edge_color_btn, item.edge_color)
+            _edge_opacity_spin.setValue(item.edge_opacity)
+            _edge_thickness_spin.setValue(item.outline_thickness)
 
         # Rectangle-only properties
-        if rect is not None:
+        if isinstance(item, RectangleItem):
             for w in _rect_only_widgets:
                 w.setVisible(True)
-            _rect_angle_spin.setValue(rect.angle_ccw)
-            _fade_check.setChecked(rect.fade)
-            _show_cog_check.setChecked(rect.show_cog)
-            _show_cs_check.setChecked(rect.show_local_cs)
-            _show_cs_labels_check.setChecked(rect.show_cs_labels)
-            _n_label_edit.setText(rect.n_label_text)
-            _t_label_edit.setText(rect.t_label_text)
-            # Only show CS label controls when local CS is visible
-            if not rect.show_local_cs:
+            _rect_angle_spin.setValue(item.angle_ccw)
+            _fade_check.setChecked(item.fade)
+            _show_cog_check.setChecked(item.show_cog)
+            _show_cs_check.setChecked(item.show_local_cs)
+            _show_cs_labels_check.setChecked(item.show_cs_labels)
+            _n_label_edit.setText(item.n_label_text)
+            _t_label_edit.setText(item.t_label_text)
+            if not item.show_local_cs:
                 for w in _cs_label_widgets:
                     w.setVisible(False)
 
         # Ellipse angle (reuse the angle spinbox)
-        if ellipse is not None:
+        if isinstance(item, EllipseItem):
             _rect_angle_label.setVisible(True)
             _rect_angle_spin.setVisible(True)
-            _rect_angle_spin.setValue(ellipse.angle_ccw)
+            _rect_angle_spin.setValue(item.angle_ccw)
 
-        # COG item
-        if cog is not None:
-            window.showLabelCheckBox.setChecked(cog.label_visible)
-            window.labelTextLineEdit.setText(cog.label_text)
-            window.fontSizeSpinBox.setValue(cog.font_size)
-            window.boldButton.setChecked(cog.label_bold)
-            window.italicButton.setChecked(cog.label_italic)
+        # Label properties (common to all items)
+        _sync_label_widgets(item)
 
-        # Pin support item
-        if pin_support is not None:
-            window.showLabelCheckBox.setChecked(pin_support.label_visible)
-            window.labelTextLineEdit.setText(pin_support.label_text)
-            window.fontSizeSpinBox.setValue(pin_support.font_size)
-            window.boldButton.setChecked(pin_support.label_bold)
-            window.italicButton.setChecked(pin_support.label_italic)
-            for w in _pin_support_widgets:
-                w.setVisible(True)
-            _show_pin_hole_check.setChecked(pin_support.show_pin_hole)
+        # Label background
+        _label_bg_label.setVisible(True)
+        _label_bg_row.setVisible(True)
+        _label_bg_check.setChecked(item.label_background)
+        _set_button_color(_label_bg_color_btn, item.label_bg_color)
 
-        # Text item (label controls are common, just sync values)
-        if text is not None:
-            window.showLabelCheckBox.setChecked(text.label_visible)
-            window.labelTextLineEdit.setText(text.label_text)
-            window.fontSizeSpinBox.setValue(text.font_size)
-            window.boldButton.setChecked(text.label_bold)
-            window.italicButton.setChecked(text.label_italic)
-
-        # Label background (common to all items)
-        any_item = _get_selected_item()
-        if any_item is not None:
-            _label_bg_label.setVisible(True)
-            _label_bg_check.setVisible(True)
-            _label_bg_check.setChecked(any_item.label_background)
 
         _updating_panel = False
 
@@ -1311,27 +1244,12 @@ def main():
 
     def _get_selected_item():
         """Return any selected item."""
-        return (window.canvas.get_selected_vector()
-                or window.canvas.get_selected_direction()
-                or window.canvas.get_selected_line()
-                or window.canvas.get_selected_point()
-                or window.canvas.get_selected_moment()
-                or window.canvas.get_selected_rectangle()
-                or window.canvas.get_selected_polygon()
-                or window.canvas.get_selected_ellipse()
-                or window.canvas.get_selected_text()
-                or window.canvas.get_selected_spring()
-                or window.canvas.get_selected_squiggle()
-                or window.canvas.get_selected_cog()
-                or window.canvas.get_selected_pin_support())
+        return window.canvas.get_selected_any()
 
     def _get_selected_line_item():
-        """Return the selected vector, direction, line, spring, or squiggle (items with tail/head)."""
-        return (window.canvas.get_selected_vector()
-                or window.canvas.get_selected_direction()
-                or window.canvas.get_selected_line()
-                or window.canvas.get_selected_spring()
-                or window.canvas.get_selected_squiggle())
+        """Return the selected item if it has tail/head (TwoEndpointItem)."""
+        item = window.canvas.get_selected_any()
+        return item if isinstance(item, TwoEndpointItem) else None
 
     def _push_resize(item, old_tail, old_head, new_tail, new_head):
         """Push a resize command, reverting item first for consistent redo."""
@@ -1630,10 +1548,9 @@ def main():
         undo_stack.push(cmd)
 
     def _get_selected_shape():
-        """Return the selected rectangle, polygon, or ellipse."""
-        return (window.canvas.get_selected_rectangle()
-                or window.canvas.get_selected_polygon()
-                or window.canvas.get_selected_ellipse())
+        """Return the selected item if it has fill/edge properties (shape)."""
+        item = window.canvas.get_selected_any()
+        return item if isinstance(item, FillProperties) else None
 
     def on_fill_color_clicked():
         if _updating_panel:
@@ -1707,13 +1624,11 @@ def main():
     # --- Item color/opacity handlers (vector, direction, point, moment) ---
 
     def _get_selected_color_item():
-        return (window.canvas.get_selected_vector()
-                or window.canvas.get_selected_direction()
-                or window.canvas.get_selected_point()
-                or window.canvas.get_selected_moment()
-                or window.canvas.get_selected_text()
-                or window.canvas.get_selected_spring()
-                or window.canvas.get_selected_squiggle())
+        """Return the selected item if it shows the stroke color widget."""
+        item = window.canvas.get_selected_any()
+        if item is not None and not isinstance(item, (FillProperties, CogItem)):
+            return item
+        return None
 
     def on_item_color_clicked():
         if _updating_panel:
@@ -1928,7 +1843,23 @@ def main():
         cmd = ChangeShapePropertyCommand(item, "label_background", old_val, checked, "Toggle Label Background")
         undo_stack.push(cmd)
 
+    def on_label_bg_color_clicked():
+        if _updating_panel:
+            return
+        item = _get_selected_item()
+        if item is None:
+            return
+        color = QColorDialog.getColor(item.label_bg_color, window, "Label Background Color")
+        if not color.isValid():
+            return
+        old_val = item.label_bg_color
+        item.label_bg_color = old_val
+        cmd = ChangeShapePropertyCommand(item, "label_bg_color", old_val, color, "Change Label BG Color")
+        undo_stack.push(cmd)
+        _set_button_color(_label_bg_color_btn, color)
+
     _label_bg_check.toggled.connect(on_label_bg_toggled)
+    _label_bg_color_btn.clicked.connect(on_label_bg_color_clicked)
 
     window.centerXSpinBox.valueChanged.connect(on_center_x_changed)
     window.centerYSpinBox.valueChanged.connect(on_center_y_changed)

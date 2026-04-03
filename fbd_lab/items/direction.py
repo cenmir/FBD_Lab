@@ -21,13 +21,13 @@ ARROWHEAD_WIDTH = 14
 class DirectionItem(TwoEndpointItem):
     """A dashed line from tail to head with an optional open-triangle arrowhead."""
 
-    def _default_item_color(self) -> QColor:
+    def _default_stroke_color(self) -> QColor:
         return QColor(DIRECTION_COLOR)
 
     def __init__(self, tail: QPointF, head: QPointF, parent=None):
         self._show_arrowhead = False
-        self._item_color = QColor(DIRECTION_COLOR)
-        self._item_opacity = 255
+        self._stroke_color = QColor(DIRECTION_COLOR)
+        self._stroke_opacity = 255
 
         super().__init__(tail, head, handle_radius=DEFAULT_HANDLE_RADIUS, parent=parent)
 
@@ -120,7 +120,8 @@ class DirectionItem(TwoEndpointItem):
             QPointF(data["tail"][0], data["tail"][1]),
             QPointF(data["head"][0], data["head"][1]),
         )
-        d._base_from_dict(data)
+        d._stroke_from_dict(data)
+        d._label_from_dict(data)
         d._show_arrowhead = data.get("show_arrowhead", False)
         d._rebuild_path()
         return d

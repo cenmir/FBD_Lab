@@ -162,6 +162,7 @@ class BaseLabel(QGraphicsTextItem):
         self._drag_old_offset: QPointF | None = None
         self._updating = False
         self._has_background = False
+        self._bg_color = QColor(255, 255, 255)
 
         self.setDefaultTextColor(LABEL_COLOR)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
@@ -176,10 +177,14 @@ class BaseLabel(QGraphicsTextItem):
         self._has_background = enabled
         self.update_display()
 
+    def set_bg_color(self, color: QColor):
+        self._bg_color = QColor(color)
+        self.update_display()
+
     def update_display(self):
         html = self._parent_item.get_label_html()
         if self._has_background:
-            html = f'<span style="background-color: white; padding: 2px;">{html}</span>'
+            html = f'<span style="background-color: {self._bg_color.name()}; padding: 2px;">{html}</span>'
         self.setHtml(html)
 
     def update_color(self, selected: bool):
@@ -224,17 +229,223 @@ class BaseLabel(QGraphicsTextItem):
             push_fn(cmd)
 
 
-# ─── LabelPropertiesMixin ─────────────────────────────────────────────────────
+# ─── BaseItemProperties ──────────────────────────────────────────────────────
 
-class LabelPropertiesMixin:
-    """Mixin providing shared label/z-order properties for all FBD item types."""
+class BaseItemProperties:
+    """Mixin providing callbacks and handle/anchor stubs for all FBD items."""
 
-    _DEFAULT_ITEM_COLOR = QColor(0, 0, 0)
+    def _init_base_properties(self):
+        self.on_modified = None
+        self.on_push_undo = None
+
+    def drag_anchor(self) -> QPointF:
+        raise NotImplementedError
+
+    def _get_handles(self) -> list:
+        return []
+
+
+# ─── StrokeProperties ────────────────────────────────────────────────────────
+
+class StrokeProperties:
+    """Mixin providing stroke color and opacity for line/vector-style items."""
+
+    _DEFAULT_STROKE_COLOR = QColor(0, 0, 0)
+
+    def _default_stroke_color(self) -> QColor:
+        return QColor(self._DEFAULT_STROKE_COLOR)
+
+    def _init_stroke_properties(self):
+        if not hasattr(self, '_stroke_color'):
+            self._stroke_color = self._default_stroke_color()
+        if not hasattr(self, '_stroke_opacity'):
+            self._stroke_opacity = 255
+
+    @property
+    def stroke_color(self) -> QColor:
+        return QColor(self._stroke_color)
+
+    @stroke_color.setter
+    def stroke_color(self, value: QColor):
+        self._stroke_color = QColor(value)
+        self.update()
+
+    @property
+    def stroke_opacity(self) -> int:
+        return self._stroke_opacity
+
+    @stroke_opacity.setter
+    def stroke_opacity(self, value: int):
+        self._stroke_opacity = max(0, min(255, value))
+        self.update()
+
+    def _get_stroke_color_with_opacity(self) -> QColor:
+        c = QColor(self._stroke_color)
+        c.setAlpha(self._stroke_opacity)
+        return c
+
+    def _stroke_to_dict(self) -> dict:
+        d = {}
+        default_color = self._default_stroke_color()
+        if self._stroke_color != default_color:
+            d["stroke_color"] = self._stroke_color.name()
+        if self._stroke_opacity != 255:
+            d["stroke_opacity"] = self._stroke_opacity
+        return d
+
+    def _stroke_from_dict(self, data: dict):
+        color_key = "stroke_color" if "stroke_color" in data else "item_color"
+        if color_key in data:
+            self._stroke_color = QColor(data[color_key])
+        opacity_key = "stroke_opacity" if "stroke_opacity" in data else "item_opacity"
+        self._stroke_opacity = data.get(opacity_key, 255)
+
+    # ── Backward-compat aliases (used by main.py panel + undo commands) ──
+
+    @property
+    def item_color(self) -> QColor:
+        return self.stroke_color
+
+    @item_color.setter
+    def item_color(self, value: QColor):
+        self.stroke_color = value
+
+    @property
+    def item_opacity(self) -> int:
+        return self.stroke_opacity
+
+    @item_opacity.setter
+    def item_opacity(self, value: int):
+        self.stroke_opacity = value
+
+    def _get_item_color_with_opacity(self) -> QColor:
+        return self._get_stroke_color_with_opacity()
 
     def _default_item_color(self) -> QColor:
-        return QColor(self._DEFAULT_ITEM_COLOR)
+        return self._default_stroke_color()
 
-    def _init_label_properties(self):
+
+# ─── LabelProperties ─────────────────────────────────────────────────────────
+
+# ─── FillProperties ───────────────────────────────────────────────────────────
+
+class FillProperties:
+    """Mixin providing fill color and fill opacity for shape items."""
+
+    _DEFAULT_FILL_COLOR = QColor(0xD8, 0xBA, 0x94)
+
+    def _default_fill_color(self) -> QColor:
+        return QColor(self._DEFAULT_FILL_COLOR)
+
+    def _init_fill_properties(self):
+        if not hasattr(self, '_fill_color'):
+            self._fill_color = self._default_fill_color()
+        if not hasattr(self, '_fill_opacity'):
+            self._fill_opacity = 255
+
+    @property
+    def fill_color(self) -> QColor:
+        return QColor(self._fill_color)
+
+    @fill_color.setter
+    def fill_color(self, value: QColor):
+        self._fill_color = QColor(value)
+        self.update()
+
+    @property
+    def fill_opacity(self) -> int:
+        return self._fill_opacity
+
+    @fill_opacity.setter
+    def fill_opacity(self, value: int):
+        self._fill_opacity = max(0, min(255, value))
+        self.update()
+
+    def _fill_to_dict(self) -> dict:
+        d = {}
+        default = self._default_fill_color()
+        if self._fill_color != default:
+            d["fill_color"] = self._fill_color.name()
+        if self._fill_opacity != 255:
+            d["fill_opacity"] = self._fill_opacity
+        return d
+
+    def _fill_from_dict(self, data: dict):
+        if "fill_color" in data:
+            self._fill_color = QColor(data["fill_color"])
+        self._fill_opacity = data.get("fill_opacity", 255)
+
+
+# ─── EdgeProperties ───────────────────────────────────────────────────────────
+
+class EdgeProperties:
+    """Mixin providing edge/outline color, opacity, and thickness for shape items."""
+
+    _DEFAULT_EDGE_COLOR = QColor(0x8B, 0x6F, 0x4E)
+    _DEFAULT_OUTLINE_THICKNESS = 2
+
+    def _default_edge_color(self) -> QColor:
+        return QColor(self._DEFAULT_EDGE_COLOR)
+
+    def _init_edge_properties(self):
+        if not hasattr(self, '_edge_color'):
+            self._edge_color = self._default_edge_color()
+        if not hasattr(self, '_edge_opacity'):
+            self._edge_opacity = 255
+        if not hasattr(self, '_outline_thickness'):
+            self._outline_thickness = self._DEFAULT_OUTLINE_THICKNESS
+
+    @property
+    def edge_color(self) -> QColor:
+        return QColor(self._edge_color)
+
+    @edge_color.setter
+    def edge_color(self, value: QColor):
+        self._edge_color = QColor(value)
+        self.update()
+
+    @property
+    def edge_opacity(self) -> int:
+        return self._edge_opacity
+
+    @edge_opacity.setter
+    def edge_opacity(self, value: int):
+        self._edge_opacity = max(0, min(255, value))
+        self.update()
+
+    @property
+    def outline_thickness(self) -> int:
+        return self._outline_thickness
+
+    @outline_thickness.setter
+    def outline_thickness(self, value: int):
+        self._outline_thickness = value
+        self.update()
+
+    def _edge_to_dict(self) -> dict:
+        d = {}
+        default = self._default_edge_color()
+        if self._edge_color != default:
+            d["edge_color"] = self._edge_color.name()
+        if self._edge_opacity != 255:
+            d["edge_opacity"] = self._edge_opacity
+        if self._outline_thickness != self._DEFAULT_OUTLINE_THICKNESS:
+            d["outline_thickness"] = self._outline_thickness
+        return d
+
+    def _edge_from_dict(self, data: dict):
+        if "edge_color" in data:
+            self._edge_color = QColor(data["edge_color"])
+        self._edge_opacity = data.get("edge_opacity", 255)
+        self._outline_thickness = data.get("outline_thickness", self._DEFAULT_OUTLINE_THICKNESS)
+
+
+# ─── LabelProperties ─────────────────────────────────────────────────────────
+
+class LabelProperties:
+    """Mixin providing label text, font, visibility, z-order, and scene management."""
+
+    def _init_label_props(self):
         self._label_text = ""
         self._label_visible = False
         self._label_offset = QPointF(DEFAULT_LABEL_OFFSET)
@@ -242,22 +453,11 @@ class LabelPropertiesMixin:
         self._label_bold = True
         self._label_italic = True
         self._label_background = False
+        self._label_bg_color = QColor(255, 255, 255)
         self._z_order = 0
-        self.on_modified = None
-        self.on_push_undo = None
-        if not hasattr(self, '_item_color'):
-            self._item_color = self._default_item_color()
-        if not hasattr(self, '_item_opacity'):
-            self._item_opacity = 255
 
     def label_anchor(self) -> QPointF:
         raise NotImplementedError
-
-    def drag_anchor(self) -> QPointF:
-        raise NotImplementedError
-
-    def _get_handles(self) -> list:
-        return []
 
     def get_label_html(self) -> str:
         return label_to_html(self._label_text, self._label_bold, self._label_italic)
@@ -327,27 +527,13 @@ class LabelPropertiesMixin:
         self._label.set_background(value)
 
     @property
-    def item_color(self) -> QColor:
-        return QColor(self._item_color)
+    def label_bg_color(self) -> QColor:
+        return QColor(self._label_bg_color)
 
-    @item_color.setter
-    def item_color(self, value: QColor):
-        self._item_color = QColor(value)
-        self.update()
-
-    @property
-    def item_opacity(self) -> int:
-        return self._item_opacity
-
-    @item_opacity.setter
-    def item_opacity(self, value: int):
-        self._item_opacity = max(0, min(255, value))
-        self.update()
-
-    def _get_item_color_with_opacity(self) -> QColor:
-        c = QColor(self._item_color)
-        c.setAlpha(self._item_opacity)
-        return c
+    @label_bg_color.setter
+    def label_bg_color(self, value: QColor):
+        self._label_bg_color = QColor(value)
+        self._label.set_bg_color(value)
 
     @property
     def z_order(self) -> int:
@@ -382,7 +568,7 @@ class LabelPropertiesMixin:
             scene.removeItem(handle)
         scene.removeItem(self._label)
 
-    def _base_to_dict(self) -> dict:
+    def _label_to_dict(self) -> dict:
         d = {
             "label_text": self._label_text,
             "label_visible": self._label_visible,
@@ -393,14 +579,11 @@ class LabelPropertiesMixin:
             "label_background": self._label_background,
             "z_order": self._z_order,
         }
-        default_color = self._default_item_color()
-        if self._item_color != default_color:
-            d["item_color"] = self._item_color.name()
-        if self._item_opacity != 255:
-            d["item_opacity"] = self._item_opacity
+        if self._label_bg_color != QColor(255, 255, 255):
+            d["label_bg_color"] = self._label_bg_color.name()
         return d
 
-    def _base_from_dict(self, data: dict):
+    def _label_from_dict(self, data: dict):
         self._label_text = data.get("label_text", "")
         self._label_visible = data.get("label_visible", False)
         offset = data.get("label_offset", [DEFAULT_LABEL_OFFSET.x(), DEFAULT_LABEL_OFFSET.y()])
@@ -409,11 +592,11 @@ class LabelPropertiesMixin:
         self._label_bold = data.get("label_bold", True)
         self._label_italic = data.get("label_italic", True)
         self._label_background = data.get("label_background", False)
+        if "label_bg_color" in data:
+            self._label_bg_color = QColor(data["label_bg_color"])
+            self._label.set_bg_color(self._label_bg_color)
         if self._label_background:
             self._label.set_background(True)
-        if "item_color" in data:
-            self._item_color = QColor(data["item_color"])
-        self._item_opacity = data.get("item_opacity", 255)
         self._label.set_font_size(self._font_size)
         self._label.update_display()
         self._update_label_visibility()
@@ -501,7 +684,7 @@ class BaseControlPoint(QGraphicsEllipseItem):
 
 # ─── TwoEndpointItem ─────────────────────────────────────────────────────────
 
-class TwoEndpointItem(LabelPropertiesMixin, QGraphicsPathItem):
+class TwoEndpointItem(BaseItemProperties, StrokeProperties, LabelProperties, QGraphicsPathItem):
     """Base class for items defined by a tail and head point.
 
     Provides: tail/head storage, control point handles, move_by, set_tail,
@@ -527,10 +710,12 @@ class TwoEndpointItem(LabelPropertiesMixin, QGraphicsPathItem):
                                              is_head=True, handle_radius=handle_radius)
 
         self._label = BaseLabel(self)
-        self._init_label_properties()
+        self._init_base_properties()
+        self._init_stroke_properties()
+        self._init_label_props()
         self._label.set_font_size(self._font_size)
 
-    # --- LabelPropertiesMixin overrides ---
+    # --- Mixin overrides ---
 
     def label_anchor(self) -> QPointF:
         return (self._tail + self._head) / 2
@@ -589,7 +774,7 @@ class TwoEndpointItem(LabelPropertiesMixin, QGraphicsPathItem):
     def _paint_preamble(self) -> tuple[bool, "QColor"]:
         """Common paint() setup. Returns (is_selected, color)."""
         is_sel = self.isSelected()
-        color = SELECTED_COLOR if is_sel else self._get_item_color_with_opacity()
+        color = SELECTED_COLOR if is_sel else self._get_stroke_color_with_opacity()
         self._tail_handle.setVisible(is_sel)
         self._head_handle.setVisible(is_sel)
         self._label.update_color(is_sel)
@@ -598,7 +783,8 @@ class TwoEndpointItem(LabelPropertiesMixin, QGraphicsPathItem):
     # --- Serialization ---
 
     def _endpoint_to_dict(self) -> dict:
-        d = self._base_to_dict()
+        d = self._label_to_dict()
+        d.update(self._stroke_to_dict())
         d["tail"] = [self._tail.x(), self._tail.y()]
         d["head"] = [self._head.x(), self._head.y()]
         return d
@@ -610,5 +796,6 @@ class TwoEndpointItem(LabelPropertiesMixin, QGraphicsPathItem):
             QPointF(data["head"][0], data["head"][1]),
             **kwargs,
         )
-        item._base_from_dict(data)
+        item._stroke_from_dict(data)
+        item._label_from_dict(data)
         return item

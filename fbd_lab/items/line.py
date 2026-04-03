@@ -11,14 +11,13 @@ from PyQt6.QtWidgets import (
 )
 
 from fbd_lab.items.base import (
-    TwoEndpointItem, SELECTED_COLOR,
+    TwoEndpointItem, FillProperties, EdgeProperties, SELECTED_COLOR,
 )
 
 LINE_BODY_COLOR = QColor(173, 216, 230)    # light blue
 LINE_OUTLINE_COLOR = QColor(0, 0, 0)       # black
 
 DEFAULT_BODY_THICKNESS = 10
-DEFAULT_OUTLINE_THICKNESS = 2
 ARROWHEAD_LENGTH = 16
 ARROWHEAD_WIDTH = 14
 
@@ -31,14 +30,18 @@ class LineSettings:
 line_settings = LineSettings()  # global singleton
 
 
-class LineItem(TwoEndpointItem):
+class LineItem(FillProperties, EdgeProperties, TwoEndpointItem):
     """A solid line rendered as a filled rectangle from tail to head."""
+
+    _DEFAULT_FILL_COLOR = QColor(LINE_BODY_COLOR)
+    _DEFAULT_EDGE_COLOR = QColor(LINE_OUTLINE_COLOR)
 
     def __init__(self, tail: QPointF, head: QPointF, parent=None):
         super().__init__(tail, head, handle_radius=line_settings.handle_radius, parent=parent)
+        self._init_fill_properties()
+        self._init_edge_properties()
 
         self._body_thickness = DEFAULT_BODY_THICKNESS
-        self._outline_thickness = DEFAULT_OUTLINE_THICKNESS
         self._show_arrow_tail = False
         self._show_arrow_head = False
         self._dashed = False
@@ -59,15 +62,6 @@ class LineItem(TwoEndpointItem):
     def body_thickness(self, value: int):
         self._body_thickness = value
         self._rebuild_path()
-
-    @property
-    def outline_thickness(self) -> int:
-        return self._outline_thickness
-
-    @outline_thickness.setter
-    def outline_thickness(self, value: int):
-        self._outline_thickness = value
-        self.update()
 
     @property
     def show_arrow_tail(self) -> bool:
@@ -200,36 +194,44 @@ class LineItem(TwoEndpointItem):
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None):
         is_sel = self.isSelected()
-        outline_color = SELECTED_COLOR if is_sel else LINE_OUTLINE_COLOR
 
         self._tail_handle.setVisible(is_sel)
         self._head_handle.setVisible(is_sel)
         self._label.update_color(is_sel)
 
+        # Edge (outline) color with opacity
+        edge_col = QColor(SELECTED_COLOR if is_sel else self._edge_color)
+        edge_col.setAlpha(self._edge_opacity)
+
+        # Fill (body) color with opacity
+        fill_col = QColor(self._fill_color)
+        fill_col.setAlpha(self._fill_opacity)
+
         if self._rect_polygon is not None:
-            pen = QPen(outline_color, self._outline_thickness)
+            pen = QPen(edge_col, self._outline_thickness)
             if self._dashed:
                 pen.setStyle(Qt.PenStyle.DashLine)
             painter.setPen(pen)
-            painter.setBrush(QBrush(LINE_BODY_COLOR))
+            painter.setBrush(QBrush(fill_col))
             painter.drawPolygon(self._rect_polygon)
 
-        # Arrowheads (filled, solid even if line is dashed)
+        # Arrowheads (filled with edge color, solid even if line is dashed)
         if self._arrow_head_poly is not None:
-            painter.setPen(QPen(outline_color, self._outline_thickness))
-            painter.setBrush(QBrush(outline_color))
+            painter.setPen(QPen(edge_col, self._outline_thickness))
+            painter.setBrush(QBrush(edge_col))
             painter.drawPolygon(self._arrow_head_poly)
         if self._arrow_tail_poly is not None:
-            painter.setPen(QPen(outline_color, self._outline_thickness))
-            painter.setBrush(QBrush(outline_color))
+            painter.setPen(QPen(edge_col, self._outline_thickness))
+            painter.setBrush(QBrush(edge_col))
             painter.drawPolygon(self._arrow_tail_poly)
 
     # --- Serialization ---
 
     def to_dict(self) -> dict:
         d = self._endpoint_to_dict()
+        d.update(self._fill_to_dict())
+        d.update(self._edge_to_dict())
         d["body_thickness"] = self._body_thickness
-        d["outline_thickness"] = self._outline_thickness
         d["show_arrow_tail"] = self._show_arrow_tail
         d["show_arrow_head"] = self._show_arrow_head
         d["dashed"] = self._dashed
@@ -241,9 +243,10 @@ class LineItem(TwoEndpointItem):
             QPointF(data["tail"][0], data["tail"][1]),
             QPointF(data["head"][0], data["head"][1]),
         )
-        ln._base_from_dict(data)
+        ln._label_from_dict(data)
+        ln._fill_from_dict(data)
+        ln._edge_from_dict(data)
         ln._body_thickness = data.get("body_thickness", DEFAULT_BODY_THICKNESS)
-        ln._outline_thickness = data.get("outline_thickness", DEFAULT_OUTLINE_THICKNESS)
         ln._show_arrow_tail = data.get("show_arrow_tail", False)
         ln._show_arrow_head = data.get("show_arrow_head", False)
         ln._dashed = data.get("dashed", False)

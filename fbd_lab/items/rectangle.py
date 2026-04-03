@@ -14,15 +14,15 @@ from PyQt6.QtWidgets import (
     QStyleOptionGraphicsItem, QWidget,
 )
 
-from fbd_lab.items.base import BaseLabel, LabelPropertiesMixin, SELECTED_COLOR
+from fbd_lab.items.base import (
+    BaseLabel, BaseItemProperties, FillProperties, EdgeProperties, LabelProperties,
+    SELECTED_COLOR,
+)
 from fbd_lab.items.rotation_handle import RotationHandleItem
 
 RECT_FILL_COLOR = QColor(0xD8, 0xBA, 0x94)       # warm wood / crate color
 RECT_OUTLINE_COLOR = QColor(0x8B, 0x6F, 0x4E)     # darker brown outline
 
-DEFAULT_FILL_OPACITY = 255       # 0-255
-DEFAULT_EDGE_OPACITY = 255       # 0-255
-DEFAULT_OUTLINE_THICKNESS = 2
 DEFAULT_AXIS_LENGTH = 60.0
 COG_RADIUS = 8
 ARROWHEAD_LENGTH = 10
@@ -200,19 +200,19 @@ class AxisHandle(QGraphicsEllipseItem):
             push_fn(cmd)
 
 
-class RectangleItem(LabelPropertiesMixin, QGraphicsPathItem):
+class RectangleItem(BaseItemProperties, FillProperties, EdgeProperties, LabelProperties, QGraphicsPathItem):
     """A filled rectangle that can be moved, resized via corner handles, and rotated.
 
     Constructed from two opposite scene-space corners (the click-drag points).
     """
 
+    _DEFAULT_FILL_COLOR = QColor(RECT_FILL_COLOR)
+    _DEFAULT_EDGE_COLOR = QColor(RECT_OUTLINE_COLOR)
+
     def __init__(self, corner1: QPointF, corner2: QPointF, parent=None):
         super().__init__(parent)
-        self._outline_thickness = DEFAULT_OUTLINE_THICKNESS
-        self._fill_color = QColor(RECT_FILL_COLOR)
-        self._fill_opacity = DEFAULT_FILL_OPACITY
-        self._edge_color = QColor(RECT_OUTLINE_COLOR)
-        self._edge_opacity = DEFAULT_EDGE_OPACITY
+        self._init_fill_properties()
+        self._init_edge_properties()
 
         # Fade mode
         self._fade = False
@@ -264,12 +264,13 @@ class RectangleItem(LabelPropertiesMixin, QGraphicsPathItem):
 
         # Label
         self._label = BaseLabel(self)
-        self._init_label_properties()
+        self._init_base_properties()
+        self._init_label_props()
         self._label.set_font_size(self._font_size)
 
         self._rebuild()
 
-    # --- LabelPropertiesMixin overrides ---
+    # --- Mixin overrides ---
 
     def label_anchor(self) -> QPointF:
         return self.mapToScene(self._local_rect.center())
@@ -294,51 +295,6 @@ class RectangleItem(LabelPropertiesMixin, QGraphicsPathItem):
     @property
     def rect_height(self) -> float:
         return self._local_rect.height()
-
-    @property
-    def outline_thickness(self) -> int:
-        return self._outline_thickness
-
-    @outline_thickness.setter
-    def outline_thickness(self, value: int):
-        self._outline_thickness = value
-        self.update()
-
-    @property
-    def fill_color(self) -> QColor:
-        return QColor(self._fill_color)
-
-    @fill_color.setter
-    def fill_color(self, value: QColor):
-        self._fill_color = QColor(value)
-        self.update()
-
-    @property
-    def fill_opacity(self) -> int:
-        return self._fill_opacity
-
-    @fill_opacity.setter
-    def fill_opacity(self, value: int):
-        self._fill_opacity = max(0, min(255, value))
-        self.update()
-
-    @property
-    def edge_color(self) -> QColor:
-        return QColor(self._edge_color)
-
-    @edge_color.setter
-    def edge_color(self, value: QColor):
-        self._edge_color = QColor(value)
-        self.update()
-
-    @property
-    def edge_opacity(self) -> int:
-        return self._edge_opacity
-
-    @edge_opacity.setter
-    def edge_opacity(self, value: int):
-        self._edge_opacity = max(0, min(255, value))
-        self.update()
 
     @property
     def fade(self) -> bool:
@@ -755,16 +711,13 @@ class RectangleItem(LabelPropertiesMixin, QGraphicsPathItem):
     # --- Serialization ---
 
     def to_dict(self) -> dict:
-        d = self._base_to_dict()
+        d = self._label_to_dict()
+        d.update(self._fill_to_dict())
+        d.update(self._edge_to_dict())
         d["center"] = [self.pos().x(), self.pos().y()]
         d["width"] = self._local_rect.width()
         d["height"] = self._local_rect.height()
         d["rotation"] = self.rotation()
-        d["outline_thickness"] = self._outline_thickness
-        d["fill_color"] = self._fill_color.name()
-        d["fill_opacity"] = self._fill_opacity
-        d["edge_color"] = self._edge_color.name()
-        d["edge_opacity"] = self._edge_opacity
         d["fade"] = self._fade
         d["top_inset"] = self._top_inset
         d["bottom_inset"] = self._bottom_inset
@@ -785,14 +738,9 @@ class RectangleItem(LabelPropertiesMixin, QGraphicsPathItem):
         corner1 = QPointF(cx - w / 2, cy - h / 2)
         corner2 = QPointF(cx + w / 2, cy + h / 2)
         item = cls(corner1, corner2)
-        item._base_from_dict(data)
-        item._outline_thickness = data.get("outline_thickness", DEFAULT_OUTLINE_THICKNESS)
-        if "fill_color" in data:
-            item._fill_color = QColor(data["fill_color"])
-        item._fill_opacity = data.get("fill_opacity", DEFAULT_FILL_OPACITY)
-        if "edge_color" in data:
-            item._edge_color = QColor(data["edge_color"])
-        item._edge_opacity = data.get("edge_opacity", DEFAULT_EDGE_OPACITY)
+        item._label_from_dict(data)
+        item._fill_from_dict(data)
+        item._edge_from_dict(data)
         item._fade = data.get("fade", False)
         item._top_inset = data.get("top_inset", 0.0)
         item._bottom_inset = data.get("bottom_inset", 0.0)

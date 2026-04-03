@@ -13,15 +13,14 @@ from PyQt6.QtWidgets import (
     QGraphicsSceneMouseEvent, QStyleOptionGraphicsItem, QWidget, QApplication,
 )
 
-from fbd_lab.items.base import BaseLabel, LabelPropertiesMixin, SELECTED_COLOR
+from fbd_lab.items.base import (
+    BaseLabel, BaseItemProperties, FillProperties, EdgeProperties, LabelProperties,
+    SELECTED_COLOR,
+)
 from fbd_lab.items.rotation_handle import RotationHandleItem
 
 POLYGON_FILL_COLOR = QColor(0xD8, 0xBA, 0x94)
 POLYGON_OUTLINE_COLOR = QColor(0x8B, 0x6F, 0x4E)
-
-DEFAULT_FILL_OPACITY = 255       # 0-255
-DEFAULT_EDGE_OPACITY = 255       # 0-255
-DEFAULT_OUTLINE_THICKNESS = 2
 
 
 @dataclass
@@ -77,8 +76,11 @@ class VertexHandle(QGraphicsEllipseItem):
             push_fn(cmd)
 
 
-class PolygonItem(LabelPropertiesMixin, QGraphicsPathItem):
+class PolygonItem(BaseItemProperties, FillProperties, EdgeProperties, LabelProperties, QGraphicsPathItem):
     """A filled polygon that can be moved, edited via vertex handles, and rotated."""
+
+    _DEFAULT_FILL_COLOR = QColor(POLYGON_FILL_COLOR)
+    _DEFAULT_EDGE_COLOR = QColor(POLYGON_OUTLINE_COLOR)
 
     def __init__(self, center: QPointF, vertices: list[QPointF], parent=None):
         """
@@ -86,11 +88,8 @@ class PolygonItem(LabelPropertiesMixin, QGraphicsPathItem):
         vertices: list of QPointF in local coords (relative to center)
         """
         super().__init__(parent)
-        self._outline_thickness = DEFAULT_OUTLINE_THICKNESS
-        self._fill_color = QColor(POLYGON_FILL_COLOR)
-        self._fill_opacity = DEFAULT_FILL_OPACITY
-        self._edge_color = QColor(POLYGON_OUTLINE_COLOR)
-        self._edge_opacity = DEFAULT_EDGE_OPACITY
+        self._init_fill_properties()
+        self._init_edge_properties()
 
         self.setPos(center)
         self._vertices = [QPointF(v) for v in vertices]
@@ -109,12 +108,13 @@ class PolygonItem(LabelPropertiesMixin, QGraphicsPathItem):
 
         # Label
         self._label = BaseLabel(self)
-        self._init_label_properties()
+        self._init_base_properties()
+        self._init_label_props()
         self._label.set_font_size(self._font_size)
 
         self._rebuild()
 
-    # --- LabelPropertiesMixin overrides ---
+    # --- Mixin overrides ---
 
     def label_anchor(self) -> QPointF:
         return self.mapToScene(self._centroid())
@@ -154,51 +154,6 @@ class PolygonItem(LabelPropertiesMixin, QGraphicsPathItem):
         r = polygon_settings.handle_radius
         # New handles parented to self — auto-added to scene
         self._handles = [VertexHandle(self, i, r) for i in range(len(self._vertices))]
-
-    @property
-    def outline_thickness(self) -> int:
-        return self._outline_thickness
-
-    @outline_thickness.setter
-    def outline_thickness(self, value: int):
-        self._outline_thickness = value
-        self.update()
-
-    @property
-    def fill_color(self) -> QColor:
-        return QColor(self._fill_color)
-
-    @fill_color.setter
-    def fill_color(self, value: QColor):
-        self._fill_color = QColor(value)
-        self.update()
-
-    @property
-    def fill_opacity(self) -> int:
-        return self._fill_opacity
-
-    @fill_opacity.setter
-    def fill_opacity(self, value: int):
-        self._fill_opacity = max(0, min(255, value))
-        self.update()
-
-    @property
-    def edge_color(self) -> QColor:
-        return QColor(self._edge_color)
-
-    @edge_color.setter
-    def edge_color(self, value: QColor):
-        self._edge_color = QColor(value)
-        self.update()
-
-    @property
-    def edge_opacity(self) -> int:
-        return self._edge_opacity
-
-    @edge_opacity.setter
-    def edge_opacity(self, value: int):
-        self._edge_opacity = max(0, min(255, value))
-        self.update()
 
     # --- Movement ---
 
@@ -289,15 +244,12 @@ class PolygonItem(LabelPropertiesMixin, QGraphicsPathItem):
     # --- Serialization ---
 
     def to_dict(self) -> dict:
-        d = self._base_to_dict()
+        d = self._label_to_dict()
+        d.update(self._fill_to_dict())
+        d.update(self._edge_to_dict())
         d["center"] = [self.pos().x(), self.pos().y()]
         d["vertices"] = self._vertices_as_list()
         d["rotation"] = self.rotation()
-        d["outline_thickness"] = self._outline_thickness
-        d["fill_color"] = self._fill_color.name()
-        d["fill_opacity"] = self._fill_opacity
-        d["edge_color"] = self._edge_color.name()
-        d["edge_opacity"] = self._edge_opacity
         return d
 
     @classmethod
@@ -305,14 +257,9 @@ class PolygonItem(LabelPropertiesMixin, QGraphicsPathItem):
         center = QPointF(data["center"][0], data["center"][1])
         verts = [QPointF(v[0], v[1]) for v in data["vertices"]]
         item = cls(center, verts)
-        item._base_from_dict(data)
-        item._outline_thickness = data.get("outline_thickness", DEFAULT_OUTLINE_THICKNESS)
-        if "fill_color" in data:
-            item._fill_color = QColor(data["fill_color"])
-        item._fill_opacity = data.get("fill_opacity", DEFAULT_FILL_OPACITY)
-        if "edge_color" in data:
-            item._edge_color = QColor(data["edge_color"])
-        item._edge_opacity = data.get("edge_opacity", DEFAULT_EDGE_OPACITY)
+        item._label_from_dict(data)
+        item._fill_from_dict(data)
+        item._edge_from_dict(data)
         item.setRotation(data.get("rotation", 0.0))
         item._rebuild()
         return item

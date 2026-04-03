@@ -431,6 +431,11 @@ class FBDCanvas(QGraphicsView):
     def get_selected_pin_support(self):       return self._get_selected_item(PinSupportItem)
     def clear_pin_supports(self):             self._clear_items('pin_supports')
 
+    def get_selected_any(self):
+        """Return any single selected FBD item, or None."""
+        from fbd_lab.items.base import LabelProperties
+        return self._get_selected_item(LabelProperties)
+
     def clear_all(self):
         """Clear all items of all types."""
         for type_key in self._items:
@@ -1031,10 +1036,9 @@ class FBDCanvas(QGraphicsView):
     # --- Context menu (right-click) ---
 
     def _find_canvas_item(self, graphics_item):
-        """Find the VectorItem/PointItem/DirectionItem/LineItem/MomentItem that owns a graphics item."""
-        if isinstance(graphics_item, (VectorItem, PointItem, DirectionItem, LineItem,
-                                      MomentItem, RectangleItem, PolygonItem, EllipseItem,
-                                      TextItem, SpringItem, SquiggleItem)):
+        """Find the canvas item that owns a graphics item."""
+        from fbd_lab.items.base import LabelProperties
+        if isinstance(graphics_item, LabelProperties):
             return graphics_item
         # BaseLabel / BaseControlPoint / Moment handles all use _parent_item
         parent = getattr(graphics_item, '_parent_item', None)
@@ -1108,11 +1112,28 @@ class FBDCanvas(QGraphicsView):
             self.selection_changed.emit()
 
         menu = QMenu(self)
+
+        show_label = menu.addAction("Show Label")
+        show_label.setCheckable(True)
+        show_label.setChecked(target.label_visible)
+
+        menu.addSeparator()
         bring_front = menu.addAction("Bring to Front")
         send_back = menu.addAction("Send to Back")
 
         action = menu.exec(event.globalPos())
-        if action == bring_front:
+        if action == show_label:
+            from fbd_lab.commands import ChangeLabelVisibilityCommand
+            old_vis = target.label_visible
+            new_vis = not old_vis
+            if self._has_undo_stack():
+                target.label_visible = old_vis
+                cmd = ChangeLabelVisibilityCommand(target, old_vis, new_vis)
+                self._undo_stack.push(cmd)
+            else:
+                target.label_visible = new_vis
+            self.selection_changed.emit()
+        elif action == bring_front:
             self._bring_to_front(target)
         elif action == send_back:
             self._send_to_back(target)

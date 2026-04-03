@@ -7,28 +7,32 @@ from PyQt6.QtWidgets import (
     QStyleOptionGraphicsItem, QWidget,
 )
 
-from fbd_lab.items.base import BaseLabel, LabelPropertiesMixin, SELECTED_COLOR
+from fbd_lab.items.base import (
+    BaseLabel, BaseItemProperties, StrokeProperties, LabelProperties, SELECTED_COLOR,
+)
 
 DEFAULT_TEXT = "Text"
 
 
-class TextItem(LabelPropertiesMixin, QGraphicsRectItem):
+class TextItem(BaseItemProperties, StrokeProperties, LabelProperties, QGraphicsRectItem):
     """A positioned text label — renders via the LaTeX-aware label system."""
 
-    def _default_item_color(self) -> QColor:
+    def _default_stroke_color(self) -> QColor:
         return QColor(0, 0, 0)
 
     def __init__(self, pos: QPointF, parent=None):
         super().__init__(parent)
         self._pos = QPointF(pos)
-        self._item_color = QColor(0, 0, 0)
-        self._item_opacity = 255
+        self._stroke_color = QColor(0, 0, 0)
+        self._stroke_opacity = 255
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setZValue(1)
 
         self._label = BaseLabel(self)
-        self._init_label_properties()
+        self._init_base_properties()
+        self._init_stroke_properties()
+        self._init_label_props()
         # Text items: label always visible, default text, not bold/italic
         self._label_visible = True
         self._label_text = DEFAULT_TEXT
@@ -41,7 +45,7 @@ class TextItem(LabelPropertiesMixin, QGraphicsRectItem):
 
         self._rebuild()
 
-    # --- LabelPropertiesMixin overrides ---
+    # --- Mixin overrides ---
 
     def label_anchor(self) -> QPointF:
         return QPointF(self._pos)
@@ -95,7 +99,7 @@ class TextItem(LabelPropertiesMixin, QGraphicsRectItem):
 
         # Apply item color to label when not selected
         if not is_sel:
-            color = self._get_item_color_with_opacity()
+            color = self._get_stroke_color_with_opacity()
             self._label.setDefaultTextColor(color)
 
         # Draw selection indicator (dotted outline around text area)
@@ -111,14 +115,16 @@ class TextItem(LabelPropertiesMixin, QGraphicsRectItem):
     # --- Serialization ---
 
     def to_dict(self) -> dict:
-        d = self._base_to_dict()
+        d = self._label_to_dict()
+        d.update(self._stroke_to_dict())
         d["pos"] = [self._pos.x(), self._pos.y()]
         return d
 
     @classmethod
     def from_dict(cls, data: dict) -> "TextItem":
         item = cls(QPointF(data["pos"][0], data["pos"][1]))
-        item._base_from_dict(data)
+        item._stroke_from_dict(data)
+        item._label_from_dict(data)
         # Ensure label is always visible for text items
         item._label_visible = True
         item._update_label_visibility()

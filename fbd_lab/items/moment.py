@@ -13,7 +13,7 @@ from PyQt6.QtWidgets import (
 )
 
 from fbd_lab.items.base import (
-    BaseLabel, LabelPropertiesMixin,
+    BaseLabel, BaseItemProperties, StrokeProperties, LabelProperties,
     SELECTED_COLOR,
 )
 
@@ -190,10 +190,10 @@ class MomentArcEndpoint(QGraphicsEllipseItem):
             push_fn(cmd)
 
 
-class MomentItem(LabelPropertiesMixin, QGraphicsPathItem):
+class MomentItem(BaseItemProperties, StrokeProperties, LabelProperties, QGraphicsPathItem):
     """A moment (rotational force) visualized as a curved arc arrow."""
 
-    def _default_item_color(self) -> QColor:
+    def _default_stroke_color(self) -> QColor:
         return QColor(MOMENT_ARC_COLOR)
 
     def __init__(self, center: QPointF, radius: float = DEFAULT_RADIUS,
@@ -204,8 +204,8 @@ class MomentItem(LabelPropertiesMixin, QGraphicsPathItem):
         self._radius = radius
         self._start_angle = start_angle
         self._span_angle = span_angle
-        self._item_color = QColor(MOMENT_ARC_COLOR)
-        self._item_opacity = 255
+        self._stroke_color = QColor(MOMENT_ARC_COLOR)
+        self._stroke_opacity = 255
         self._reversed = False
 
         self._arrowhead_polygon: QPolygonF | None = None
@@ -217,12 +217,14 @@ class MomentItem(LabelPropertiesMixin, QGraphicsPathItem):
         self._end_handle = MomentArcEndpoint(self, is_start=False)
 
         self._label = BaseLabel(self)
-        self._init_label_properties()
+        self._init_base_properties()
+        self._init_stroke_properties()
+        self._init_label_props()
         self._label.set_font_size(self._font_size)
 
         self._rebuild_path()
 
-    # --- LabelPropertiesMixin overrides ---
+    # --- Mixin overrides ---
 
     def label_anchor(self) -> QPointF:
         return QPointF(self._center)
@@ -400,11 +402,11 @@ class MomentItem(LabelPropertiesMixin, QGraphicsPathItem):
 
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget: QWidget = None):
         is_sel = self.isSelected()
-        color = SELECTED_COLOR if is_sel else self._get_item_color_with_opacity()
+        color = SELECTED_COLOR if is_sel else self._get_stroke_color_with_opacity()
 
         self._start_handle.setVisible(is_sel)
         self._end_handle.setVisible(is_sel)
-        self._center_marker.setBrush(QBrush(SELECTED_COLOR if is_sel else self._get_item_color_with_opacity()))
+        self._center_marker.setBrush(QBrush(SELECTED_COLOR if is_sel else self._get_stroke_color_with_opacity()))
         self._label.update_color(is_sel)
 
         # Draw the arc
@@ -428,7 +430,8 @@ class MomentItem(LabelPropertiesMixin, QGraphicsPathItem):
     # --- Serialization ---
 
     def to_dict(self) -> dict:
-        d = self._base_to_dict()
+        d = self._label_to_dict()
+        d.update(self._stroke_to_dict())
         d["center"] = [self._center.x(), self._center.y()]
         d["radius"] = self._radius
         d["start_angle"] = self._start_angle
@@ -445,6 +448,7 @@ class MomentItem(LabelPropertiesMixin, QGraphicsPathItem):
             span_angle=data.get("span_angle", DEFAULT_SPAN_ANGLE),
         )
         m._reversed = data.get("reversed", False)
-        m._base_from_dict(data)
+        m._stroke_from_dict(data)
+        m._label_from_dict(data)
         m._rebuild_path()
         return m
