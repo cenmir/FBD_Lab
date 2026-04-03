@@ -44,7 +44,7 @@
       <widget class="QScrollArea" name="leftScrollArea">
        <property name="minimumSize">
         <size>
-         <width>260</width>
+         <width>0</width>
          <height>0</height>
         </size>
        </property>
@@ -401,13 +401,13 @@
       <widget class="QScrollArea" name="rightScrollArea">
        <property name="minimumSize">
         <size>
-         <width>260</width>
+         <width>0</width>
          <height>0</height>
         </size>
        </property>
        <property name="maximumSize">
         <size>
-         <width>280</width>
+         <width>240</width>
          <height>16777215</height>
         </size>
        </property>

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from enum import Enum, auto
 from pathlib import Path
 
-from PyQt6.QtCore import Qt, pyqtSignal, QPointF
+from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QPoint
 from PyQt6.QtGui import (
     QPixmap, QDragEnterEvent, QDropEvent, QKeyEvent,
     QImage, QKeySequence, QMouseEvent, QPen, QColor, QPainter,
@@ -151,9 +151,17 @@ class FBDCanvas(QGraphicsView):
         # Background visibility (separate from item registry)
         self._bg_visible = True
 
+        # Zoom / pan state
+        self._panning = False
+        self._pan_start: QPoint | None = None
+        self._zoom_level = 1.0
+        self._zoom_min = 0.1
+        self._zoom_max = 5.0
+
         # Rendering
         self.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self.setRenderHint(QPainter.RenderHint.SmoothPixmapTransform, True)
+        self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
 
         # Enable drag and drop
         self.setAcceptDrops(True)
@@ -463,9 +471,36 @@ class FBDCanvas(QGraphicsView):
             return QPointF(start.x(), end.y())
         return end
 
+    # --- Zoom / Pan ---
+
+    def wheelEvent(self, event):
+        """Scroll wheel to zoom in/out, centered on cursor."""
+        delta = event.angleDelta().y()
+        if delta == 0:
+            return
+        factor = 1.15 if delta > 0 else 1 / 1.15
+        new_zoom = self._zoom_level * factor
+        if new_zoom < self._zoom_min or new_zoom > self._zoom_max:
+            return
+        self._zoom_level = new_zoom
+        self.scale(factor, factor)
+
+    def reset_view(self):
+        """Reset zoom and pan to fit the canvas rect."""
+        self.resetTransform()
+        self._zoom_level = 1.0
+        self.centerOn(self._canvas_rect)
+
     # --- Mouse events ---
 
     def mousePressEvent(self, event: QMouseEvent):
+        # Middle-mouse pan
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._panning = True
+            self._pan_start = event.position().toPoint()
+            self.viewport().setCursor(Qt.CursorShape.ClosedHandCursor)
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             # Vector creation mode
             if self._tool == ToolMode.VECTOR:
@@ -647,6 +682,17 @@ class FBDCanvas(QGraphicsView):
         super().mousePressEvent(event)
 
     def mouseMoveEvent(self, event: QMouseEvent):
+        # Middle-mouse pan
+        if self._panning and self._pan_start is not None:
+            delta = event.position().toPoint() - self._pan_start
+            self._pan_start = event.position().toPoint()
+            self.horizontalScrollBar().setValue(
+                self.horizontalScrollBar().value() - delta.x())
+            self.verticalScrollBar().setValue(
+                self.verticalScrollBar().value() - delta.y())
+            event.accept()
+            return
+
         self._last_mouse_scene = self.mapToScene(event.pos())
         # Rectangle creation preview
         if self._drawing and self._preview_rect and self._draw_start:
@@ -750,6 +796,13 @@ class FBDCanvas(QGraphicsView):
         super().mouseMoveEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent):
+        # Middle-mouse pan release
+        if event.button() == Qt.MouseButton.MiddleButton:
+            self._panning = False
+            self._pan_start = None
+            self.viewport().setCursor(Qt.CursorShape.ArrowCursor)
+            event.accept()
+            return
         if event.button() == Qt.MouseButton.LeftButton:
             # Finish vector/direction creation
             if self._drawing:
@@ -1073,6 +1126,9 @@ class FBDCanvas(QGraphicsView):
                 return
 
     def keyPressEvent(self, event: QKeyEvent):
+        if event.key() == Qt.Key.Key_Escape:
+            self._scene.clearSelection()
+            return
         if event.key() == Qt.Key.Key_Backspace:
             self.delete_selected()
             return

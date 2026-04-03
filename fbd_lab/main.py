@@ -197,6 +197,9 @@ def main():
     if icon_path.exists():
         app.setWindowIcon(QIcon(str(icon_path)))
 
+    # Set initial splitter sizes: left=240, canvas=remaining, right=240
+    window.mainSplitter.setSizes([280, window.width() - 520, 240])
+
     # Collapsible Layers group box — toggle content visibility on check
     def _on_layers_toggled(checked):
         for i in range(window.layersGroupBox.layout().count()):
@@ -615,6 +618,25 @@ def main():
     sb_ah_wid.valueChanged.connect(_on_ah_wid)
     sb_m_handle.valueChanged.connect(_on_m_handle)
     sb_m_center.valueChanged.connect(_on_m_center)
+
+    # --- "View" menu on menu bar ---
+    view_menu = QMenu("View", window)
+    window.menubar.addMenu(view_menu)
+
+    reset_view_action = QAction("Reset View", window)
+    reset_view_action.setShortcut(QKeySequence("Ctrl+0"))
+    reset_view_action.triggered.connect(window.canvas.reset_view)
+    view_menu.addAction(reset_view_action)
+
+    zoom_in_action = QAction("Zoom In", window)
+    zoom_in_action.setShortcut(QKeySequence("Ctrl+="))
+    zoom_in_action.triggered.connect(lambda: window.canvas.scale(1.15, 1.15))
+    view_menu.addAction(zoom_in_action)
+
+    zoom_out_action = QAction("Zoom Out", window)
+    zoom_out_action.setShortcut(QKeySequence("Ctrl+-"))
+    zoom_out_action.triggered.connect(lambda: window.canvas.scale(1/1.15, 1/1.15))
+    view_menu.addAction(zoom_out_action)
 
     # --- "Shape Format" menu on menu bar ---
     shape_format_menu = QMenu("Shape Format", window)
