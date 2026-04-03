@@ -1924,6 +1924,10 @@ def main():
 
     window.show()
 
+    # Check for updates (exe builds only, non-blocking)
+    from fbd_lab.updater import check_for_updates
+    check_for_updates(window, APP_VERSION)
+
     sys.exit(app.exec())
 
 
