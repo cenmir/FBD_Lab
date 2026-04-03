@@ -101,22 +101,40 @@ def _download_with_progress(url: str, dest: Path, parent=None) -> bool:
 def _replace_and_restart(new_exe: Path):
     """Replace the running exe with the downloaded one and restart.
 
-    On Windows we can't overwrite a running exe, so we rename the current
-    one to .old, move the new one in, and launch it.
+    On Windows a running exe can't be overwritten or renamed by itself.
+    We write a small batch script that waits for this process to exit,
+    then does the swap and launches the new version.
     """
+    import subprocess
+
     current = Path(sys.executable)
     backup = current.with_suffix(".old")
+    bat = current.with_suffix(".update.bat")
 
-    # Clean up any previous backup
-    if backup.exists():
-        backup.unlink()
+    # Write a batch script that:
+    # 1. Waits for the current process to exit (taskkill already happened via sys.exit)
+    # 2. Retries the rename in a loop until the file is unlocked
+    # 3. Swaps old -> .old, new -> current name
+    # 4. Launches the new exe
+    # 5. Deletes itself
+    bat.write_text(
+        f'@echo off\n'
+        f'echo Updating FBD Lab...\n'
+        f':wait\n'
+        f'timeout /t 1 /nobreak >nul\n'
+        f'ren "{current}" "{backup.name}" 2>nul\n'
+        f'if errorlevel 1 goto wait\n'
+        f'move "{new_exe}" "{current}" >nul\n'
+        f'start "" "{current}"\n'
+        f'del "%~f0"\n',
+        encoding="utf-8",
+    )
 
-    # Rename current -> .old, new -> current
-    current.rename(backup)
-    new_exe.rename(current)
-
-    # Launch the new exe and exit
-    os.startfile(str(current))
+    # Launch the batch script detached and exit
+    subprocess.Popen(
+        ["cmd", "/c", str(bat)],
+        creationflags=subprocess.DETACHED_PROCESS | subprocess.CREATE_NO_WINDOW,
+    )
     sys.exit(0)
 
 
