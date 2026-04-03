@@ -23,20 +23,22 @@ from fbd_lab.items.text import TextItem  # noqa: F401
 from fbd_lab.items.spring import SpringItem  # noqa: F401
 from fbd_lab.items.squiggle import SquiggleItem  # noqa: F401
 from fbd_lab.items.rotation_handle import RotationHandleItem  # noqa: F401
+from fbd_lab.items.pin_support import PinSupportItem  # noqa: F401
 
 # Item type registry: (type_key, ItemClass, json_key)
 # json_key is the key used in the v7 JSON payload (historical: vectors are "arrows")
 ITEM_REGISTRY = [
-    ('vectors',    VectorItem,    'arrows'),
-    ('points',     PointItem,     'points'),
-    ('directions', DirectionItem, 'directions'),
-    ('lines',      LineItem,      'lines'),
-    ('moments',    MomentItem,    'moments'),
-    ('rectangles', RectangleItem, 'rectangles'),
-    ('polygons',   PolygonItem,   'polygons'),
-    ('ellipses',   EllipseItem,   'ellipses'),
-    ('texts',      TextItem,      'texts'),
-    ('springs',    SpringItem,    'springs'),
-    ('squiggles',  SquiggleItem,  'squiggles'),
-    ('cogs',       CogItem,       'cogs'),
+    ('vectors',      VectorItem,      'arrows'),
+    ('points',       PointItem,       'points'),
+    ('directions',   DirectionItem,   'directions'),
+    ('lines',        LineItem,        'lines'),
+    ('moments',      MomentItem,      'moments'),
+    ('rectangles',   RectangleItem,   'rectangles'),
+    ('polygons',     PolygonItem,     'polygons'),
+    ('ellipses',     EllipseItem,     'ellipses'),
+    ('texts',        TextItem,        'texts'),
+    ('springs',      SpringItem,      'springs'),
+    ('squiggles',    SquiggleItem,    'squiggles'),
+    ('cogs',         CogItem,         'cogs'),
+    ('pin_supports', PinSupportItem,  'pin_supports'),
 ]

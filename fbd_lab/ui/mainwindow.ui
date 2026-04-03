@@ -208,6 +208,16 @@
               </property>
              </widget>
             </item>
+            <item row="6" column="0">
+             <widget class="QPushButton" name="pinSupportToolButton">
+              <property name="text">
+               <string>Pin Support (H)</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
            </layout>
           </widget>
          </item>
@@ -365,6 +375,16 @@
              <widget class="QCheckBox" name="cogsLayerCheckBox">
               <property name="text">
                <string>COGs</string>
+              </property>
+              <property name="checked">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
+            <item>
+             <widget class="QCheckBox" name="pin_supportsLayerCheckBox">
+              <property name="text">
+               <string>Pin Supports</string>
               </property>
               <property name="checked">
                <bool>true</bool>

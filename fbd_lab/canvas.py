@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
 from fbd_lab.items import (
     VectorItem, PointItem, DirectionItem, LineItem, MomentItem,
     RectangleItem, PolygonItem, EllipseItem, TextItem, SpringItem,
-    SquiggleItem, CogItem, ITEM_REGISTRY,
+    SquiggleItem, CogItem, PinSupportItem, ITEM_REGISTRY,
 )
 from fbd_lab.commands import (
     AddItemCommand, DeleteItemCommand, MoveItemCommand,
@@ -80,6 +80,7 @@ class ToolMode(Enum):
     SPRING = auto()
     SQUIGGLE = auto()
     COG = auto()
+    PIN_SUPPORT = auto()
 
 
 class FBDCanvas(QGraphicsView):
@@ -423,6 +424,13 @@ class FBDCanvas(QGraphicsView):
     def get_selected_cog(self):         return self._get_selected_item(CogItem)
     def clear_cogs(self):               self._clear_items('cogs')
 
+    def add_pin_support(self, ps):            self._add_item('pin_supports', ps)
+    def remove_pin_support(self, ps):         self._remove_item('pin_supports', ps)
+    def get_pin_supports(self):               return self._get_items('pin_supports')
+    def get_pin_supports_data(self):          return self._get_items_data('pin_supports')
+    def get_selected_pin_support(self):       return self._get_selected_item(PinSupportItem)
+    def clear_pin_supports(self):             self._clear_items('pin_supports')
+
     def clear_all(self):
         """Clear all items of all types."""
         for type_key in self._items:
@@ -447,6 +455,7 @@ class FBDCanvas(QGraphicsView):
     def set_springs_visible(self, visible):    self._set_type_visible('springs', visible)
     def set_squiggles_visible(self, visible):  self._set_type_visible('squiggles', visible)
     def set_cogs_visible(self, visible):       self._set_type_visible('cogs', visible)
+    def set_pin_supports_visible(self, visible): self._set_type_visible('pin_supports', visible)
 
     # --- Snapping ---
 
@@ -642,6 +651,22 @@ class FBDCanvas(QGraphicsView):
                 self.set_tool(ToolMode.SELECT)
                 return
 
+            # Pin support creation mode (single click to place)
+            if self._tool == ToolMode.PIN_SUPPORT:
+                scene_pos = self.mapToScene(event.pos())
+                ps = PinSupportItem(scene_pos)
+                if self._has_undo_stack():
+                    cmd = AddItemCommand(self, ps, 'pin_supports')
+                    self._undo_stack.push(cmd)
+                else:
+                    self.add_pin_support(ps)
+                    self.modified.emit()
+                self._scene.clearSelection()
+                ps.setSelected(True)
+                self.selection_changed.emit()
+                self.set_tool(ToolMode.SELECT)
+                return
+
             # Text creation mode (single click to place)
             if self._tool == ToolMode.TEXT:
                 scene_pos = self.mapToScene(event.pos())
@@ -670,7 +695,7 @@ class FBDCanvas(QGraphicsView):
                         self._scene.clearSelection()
                         item.setSelected(True)
                     return
-                if isinstance(item, (VectorItem, PointItem, DirectionItem, LineItem, RectangleItem, PolygonItem, EllipseItem, TextItem, SpringItem, SquiggleItem, CogItem)):
+                if isinstance(item, (VectorItem, PointItem, DirectionItem, LineItem, RectangleItem, PolygonItem, EllipseItem, TextItem, SpringItem, SquiggleItem, CogItem, PinSupportItem)):
                     self._dragging_item = item
                     self._drag_anchor = item.drag_anchor()
                     self._drag_last = scene_pos

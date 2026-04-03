@@ -681,6 +681,7 @@ def main():
         (window.springToolButton,    ToolMode.SPRING),
         (window.squiggleToolButton,  ToolMode.SQUIGGLE),
         (window.cogToolButton,       ToolMode.COG),
+        (window.pinSupportToolButton, ToolMode.PIN_SUPPORT),
     ]
     for btn, mode in _tool_button_map:
         btn.toggled.connect(_make_tool_toggle(mode))
@@ -706,6 +707,7 @@ def main():
             ToolMode.SPRING: "Spring creation mode — click and drag to draw",
             ToolMode.SQUIGGLE: "Squiggle creation mode — click and drag to draw",
             ToolMode.COG: "COG creation mode — click to place center of gravity",
+            ToolMode.PIN_SUPPORT: "Pin support mode — click to place pin (hinge) support",
         }
         window.statusbar.showMessage(status_msgs.get(mode, "Ready"))
 
@@ -760,6 +762,10 @@ def main():
     # "C" shortcut to toggle COG mode
     shortcut_c = QShortcut(QKeySequence("C"), window)
     shortcut_c.activated.connect(lambda: window.cogToolButton.toggle())
+
+    # "H" shortcut to toggle Pin Support mode
+    shortcut_h = QShortcut(QKeySequence("H"), window)
+    shortcut_h.activated.connect(lambda: window.pinSupportToolButton.toggle())
 
     # Delete action
     window.actionDelete.triggered.connect(window.canvas.delete_selected)
@@ -929,6 +935,16 @@ def main():
     _form.setWidget(next_row, _form.ItemRole.LabelRole, _t_label_label)
     _form.setWidget(next_row, _form.ItemRole.FieldRole, _t_label_edit)
 
+    # Show Pin Hole
+    _show_pin_hole_label = QLabel("Pin Hole:")
+    _show_pin_hole_check = QCheckBox()
+    _show_pin_hole_check.setChecked(True)
+    next_row = _form.rowCount()
+    _form.setWidget(next_row, _form.ItemRole.LabelRole, _show_pin_hole_label)
+    _form.setWidget(next_row, _form.ItemRole.FieldRole, _show_pin_hole_check)
+
+    _pin_support_widgets = [_show_pin_hole_label, _show_pin_hole_check]
+
     # Install drag filters on shape style spinboxes
     for _sb in [_item_opacity_spin, _fill_opacity_spin, _edge_opacity_spin,
                 _edge_thickness_spin, _rect_angle_spin]:
@@ -1074,13 +1090,14 @@ def main():
             ellipse = window.canvas.get_selected_ellipse()
             text = window.canvas.get_selected_text()
             cog = window.canvas.get_selected_cog()
+            pin_support = window.canvas.get_selected_pin_support()
         except RuntimeError:
             return  # scene already destroyed during shutdown
 
         spring = window.canvas.get_selected_spring()
         squiggle = window.canvas.get_selected_squiggle()
 
-        if vec is None and point is None and direction is None and line is None and moment is None and rect is None and polygon is None and ellipse is None and text is None and spring is None and squiggle is None and cog is None:
+        if vec is None and point is None and direction is None and line is None and moment is None and rect is None and polygon is None and ellipse is None and text is None and spring is None and squiggle is None and cog is None and pin_support is None:
             window.propertiesGroupBox.setVisible(False)
             return
 
@@ -1088,7 +1105,7 @@ def main():
         _updating_panel = True
 
         # Hide all conditional widget groups first
-        for w in _start_end_widgets + _magnitude_widgets + _point_only_widgets + _direction_only_widgets + _line_only_widgets + _spring_only_widgets + _moment_only_widgets + _item_color_widgets + _shape_style_widgets + _rect_only_widgets + [_label_bg_label, _label_bg_check]:
+        for w in _start_end_widgets + _magnitude_widgets + _point_only_widgets + _direction_only_widgets + _line_only_widgets + _spring_only_widgets + _moment_only_widgets + _item_color_widgets + _shape_style_widgets + _rect_only_widgets + _pin_support_widgets + [_label_bg_label, _label_bg_check]:
             w.setVisible(False)
 
         if vec is not None:
@@ -1203,8 +1220,8 @@ def main():
             window.boldButton.setChecked(squiggle.label_bold)
             window.italicButton.setChecked(squiggle.label_italic)
 
-        # Item color/opacity (for vector, direction, point, moment, text, spring, squiggle)
-        color_item = vec or direction or point or moment or text or spring or squiggle
+        # Item color/opacity (for vector, direction, point, moment, text, spring, squiggle, pin_support)
+        color_item = vec or direction or point or moment or text or spring or squiggle or pin_support
         if color_item is not None:
             for w in _item_color_widgets:
                 w.setVisible(True)
@@ -1257,6 +1274,17 @@ def main():
             window.boldButton.setChecked(cog.label_bold)
             window.italicButton.setChecked(cog.label_italic)
 
+        # Pin support item
+        if pin_support is not None:
+            window.showLabelCheckBox.setChecked(pin_support.label_visible)
+            window.labelTextLineEdit.setText(pin_support.label_text)
+            window.fontSizeSpinBox.setValue(pin_support.font_size)
+            window.boldButton.setChecked(pin_support.label_bold)
+            window.italicButton.setChecked(pin_support.label_italic)
+            for w in _pin_support_widgets:
+                w.setVisible(True)
+            _show_pin_hole_check.setChecked(pin_support.show_pin_hole)
+
         # Text item (label controls are common, just sync values)
         if text is not None:
             window.showLabelCheckBox.setChecked(text.label_visible)
@@ -1294,7 +1322,8 @@ def main():
                 or window.canvas.get_selected_text()
                 or window.canvas.get_selected_spring()
                 or window.canvas.get_selected_squiggle()
-                or window.canvas.get_selected_cog())
+                or window.canvas.get_selected_cog()
+                or window.canvas.get_selected_pin_support())
 
     def _get_selected_line_item():
         """Return the selected vector, direction, line, spring, or squiggle (items with tail/head)."""
@@ -1822,6 +1851,21 @@ def main():
     _rect_angle_spin.valueChanged.connect(on_rect_angle_changed)
     _fade_check.toggled.connect(on_fade_toggled)
     _show_cog_check.toggled.connect(on_show_cog_toggled)
+
+    def on_show_pin_hole_toggled(checked):
+        if _updating_panel:
+            return
+        ps = window.canvas.get_selected_pin_support()
+        if ps is None:
+            return
+        if checked == ps.show_pin_hole:
+            return
+        old_val = ps.show_pin_hole
+        ps.show_pin_hole = old_val
+        cmd = ChangeShapePropertyCommand(ps, "show_pin_hole", old_val, checked, "Toggle Pin Hole")
+        undo_stack.push(cmd)
+
+    _show_pin_hole_check.toggled.connect(on_show_pin_hole_toggled)
     _show_cs_check.toggled.connect(on_show_cs_toggled)
     _show_cs_labels_check.toggled.connect(on_show_cs_labels_toggled)
     _n_label_edit.editingFinished.connect(on_n_label_changed)
