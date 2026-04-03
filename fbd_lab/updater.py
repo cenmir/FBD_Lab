@@ -117,15 +117,22 @@ def _replace_and_restart(new_exe: Path):
     # 3. Swaps old -> .old, new -> current name
     # 4. Launches the new exe
     # 5. Deletes itself
+    # Use the directory + filenames explicitly to avoid path issues
+    exe_dir = current.parent
+    cur_name = current.name
+    bak_name = backup.name
+    new_name = new_exe.name
+
     bat.write_text(
         f'@echo off\n'
-        f'echo Updating FBD Lab...\n'
+        f'cd /d "{exe_dir}"\n'
         f':wait\n'
         f'timeout /t 1 /nobreak >nul\n'
-        f'ren "{current}" "{backup.name}" 2>nul\n'
+        f'del "{bak_name}" 2>nul\n'
+        f'ren "{cur_name}" "{bak_name}" 2>nul\n'
         f'if errorlevel 1 goto wait\n'
-        f'move "{new_exe}" "{current}" >nul\n'
-        f'start "" "{current}"\n'
+        f'ren "{new_name}" "{cur_name}"\n'
+        f'start "" "{cur_name}"\n'
         f'del "%~f0"\n',
         encoding="utf-8",
     )
