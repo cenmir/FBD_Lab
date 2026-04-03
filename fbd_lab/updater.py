@@ -123,16 +123,34 @@ def _replace_and_restart(new_exe: Path):
     bak_name = backup.name
     new_name = new_exe.name
 
+    log_name = current.with_suffix(".update.log").name
+
     bat.write_text(
         f'@echo off\n'
         f'cd /d "{exe_dir}"\n'
+        f'echo [%date% %time%] Update started > "{log_name}"\n'
+        f'echo cur_name="{cur_name}" >> "{log_name}"\n'
+        f'echo bak_name="{bak_name}" >> "{log_name}"\n'
+        f'echo new_name="{new_name}" >> "{log_name}"\n'
         f':wait\n'
         f'timeout /t 1 /nobreak >nul\n'
         f'del "{bak_name}" 2>nul\n'
-        f'ren "{cur_name}" "{bak_name}" 2>nul\n'
-        f'if errorlevel 1 goto wait\n'
-        f'ren "{new_name}" "{cur_name}"\n'
+        f'echo ren "{cur_name}" "{bak_name}" >> "{log_name}"\n'
+        f'ren "{cur_name}" "{bak_name}" 2>>"{log_name}"\n'
+        f'if errorlevel 1 (\n'
+        f'  echo   ...failed, retrying >> "{log_name}"\n'
+        f'  goto wait\n'
+        f')\n'
+        f'echo ren "{new_name}" "{cur_name}" >> "{log_name}"\n'
+        f'ren "{new_name}" "{cur_name}" 2>>"{log_name}"\n'
+        f'if errorlevel 1 (\n'
+        f'  echo   ...rename new failed >> "{log_name}"\n'
+        f'  ren "{bak_name}" "{cur_name}" 2>nul\n'
+        f'  goto end\n'
+        f')\n'
+        f'echo Launching "{cur_name}" >> "{log_name}"\n'
         f'start "" "{cur_name}"\n'
+        f':end\n'
         f'del "%~f0"\n',
         encoding="utf-8",
     )
