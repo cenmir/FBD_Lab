@@ -32,8 +32,8 @@ def _parse_version(tag: str) -> tuple[int, ...]:
 class VersionCheckThread(QThread):
     """Fetch the latest release info without blocking the UI."""
 
-    result = pyqtSignal(str, str, str)  # (latest_version, download_url, release_url)
-    failed = pyqtSignal()               # network error or no release found
+    result = pyqtSignal(str, str, str, str)  # (latest_version, download_url, asset_name, release_url)
+    failed = pyqtSignal()
 
     def run(self):
         try:
@@ -44,12 +44,14 @@ class VersionCheckThread(QThread):
             release_url = data.get("html_url", "")
             assets = data.get("assets", [])
             exe_url = ""
+            asset_name = ""
             for a in assets:
                 if a["name"].lower().endswith(".exe"):
                     exe_url = a["browser_download_url"]
+                    asset_name = a["name"]
                     break
             if tag and exe_url:
-                self.result.emit(tag, exe_url, release_url)
+                self.result.emit(tag, exe_url, asset_name, release_url)
             else:
                 self.failed.emit()
         except (URLError, OSError, json.JSONDecodeError, KeyError):
@@ -108,49 +110,19 @@ def _replace_and_restart(new_exe: Path):
     import subprocess
 
     current = Path(sys.executable)
-    backup = current.with_suffix(".old")
     bat = current.with_suffix(".update.bat")
-
-    # Write a batch script that:
-    # 1. Waits for the current process to exit (taskkill already happened via sys.exit)
-    # 2. Retries the rename in a loop until the file is unlocked
-    # 3. Swaps old -> .old, new -> current name
-    # 4. Launches the new exe
-    # 5. Deletes itself
-    # Use the directory + filenames explicitly to avoid path issues
     exe_dir = current.parent
     cur_name = current.name
-    bak_name = backup.name
     new_name = new_exe.name
-
-    log_name = current.with_suffix(".update.log").name
 
     bat.write_text(
         f'@echo off\n'
         f'cd /d "{exe_dir}"\n'
-        f'echo [%date% %time%] Update started > "{log_name}"\n'
-        f'echo cur_name="{cur_name}" >> "{log_name}"\n'
-        f'echo bak_name="{bak_name}" >> "{log_name}"\n'
-        f'echo new_name="{new_name}" >> "{log_name}"\n'
         f':wait\n'
         f'timeout /t 1 /nobreak >nul\n'
-        f'del "{bak_name}" 2>nul\n'
-        f'echo ren "{cur_name}" "{bak_name}" >> "{log_name}"\n'
-        f'ren "{cur_name}" "{bak_name}" 2>>"{log_name}"\n'
-        f'if errorlevel 1 (\n'
-        f'  echo   ...failed, retrying >> "{log_name}"\n'
-        f'  goto wait\n'
-        f')\n'
-        f'echo ren "{new_name}" "{cur_name}" >> "{log_name}"\n'
-        f'ren "{new_name}" "{cur_name}" 2>>"{log_name}"\n'
-        f'if errorlevel 1 (\n'
-        f'  echo   ...rename new failed >> "{log_name}"\n'
-        f'  ren "{bak_name}" "{cur_name}" 2>nul\n'
-        f'  goto end\n'
-        f')\n'
-        f'echo Launching "{cur_name}" >> "{log_name}"\n'
-        f'start "" "{cur_name}"\n'
-        f':end\n'
+        f'del "{cur_name}" 2>nul\n'
+        f'if exist "{cur_name}" goto wait\n'
+        f'start "" "{new_name}"\n'
         f'del "%~f0"\n',
         encoding="utf-8",
     )
@@ -164,7 +136,7 @@ def _replace_and_restart(new_exe: Path):
 
 
 def prompt_update(parent, current_version: str, latest_tag: str,
-                  exe_url: str, release_url: str):
+                  exe_url: str, asset_name: str, release_url: str):
     """Show update dialog and handle the download/replace flow."""
     current = _parse_version(current_version)
     latest = _parse_version(latest_tag)
@@ -188,9 +160,9 @@ def prompt_update(parent, current_version: str, latest_tag: str,
     if msg.exec() != QMessageBox.StandardButton.Yes:
         return
 
-    # Download to a temp file next to the exe
+    # Download using the real asset name (e.g. "FBD Lab v0.8.5.exe")
     current_exe = Path(sys.executable)
-    tmp_path = current_exe.parent / f"FBD_Lab_update_{latest_tag}.exe"
+    tmp_path = current_exe.parent / asset_name
 
     if not _download_with_progress(exe_url, tmp_path, parent):
         QMessageBox.warning(parent, "Update Failed",
@@ -217,18 +189,10 @@ def check_for_updates(parent, current_version: str):
     if not getattr(sys, "frozen", False):
         return  # only check in exe builds
 
-    # Clean up leftover .old from a previous update
-    backup = Path(sys.executable).with_suffix(".old")
-    if backup.exists():
-        try:
-            backup.unlink()
-        except OSError:
-            pass
-
     thread = VersionCheckThread()
 
-    def on_result(latest_tag, exe_url, release_url):
-        prompt_update(parent, current_version, latest_tag, exe_url, release_url)
+    def on_result(latest_tag, exe_url, asset_name, release_url):
+        prompt_update(parent, current_version, latest_tag, exe_url, asset_name, release_url)
 
     thread.result.connect(on_result)
     # Keep a reference so the thread isn't garbage-collected
