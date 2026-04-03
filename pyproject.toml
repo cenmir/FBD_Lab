@@ -1,6 +1,6 @@
 [project]
 name = "fbd-lab"
-version = "0.8.2"
+version = "0.8.3"
 description = "Free Body Diagram Laboratory - A PyQt6 canvas for drawing force vectors"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -14,6 +14,12 @@ build-backend = "hatchling.build"
 
 [tool.uv]
 link-mode = "copy"
+
+[dependency-groups]
+dev = [
+    "pillow>=12.2.0",
+    "pyinstaller>=6.19.0",
+]
 
 [project.scripts]
 fbd-lab = "fbd_lab.main:main"

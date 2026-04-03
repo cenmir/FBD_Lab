@@ -72,7 +72,7 @@ class VertexHandle(QGraphicsEllipseItem):
         push_fn = self._parent_item.on_push_undo
         if push_fn is not None:
             self._parent_item._set_vertices_from_list(old_verts)
-            from commands import ChangePolygonVerticesCommand
+            from fbd_lab.commands import ChangePolygonVerticesCommand
             cmd = ChangePolygonVerticesCommand(self._parent_item, old_verts, new_verts)
             push_fn(cmd)
 
@@ -232,7 +232,7 @@ class PolygonItem(LabelPropertiesMixin, QGraphicsPathItem):
         push_fn = self.on_push_undo
         if push_fn is not None:
             self.setRotation(start_rotation)
-            from commands import ChangeRotationCommand
+            from fbd_lab.commands import ChangeRotationCommand
             cmd = ChangeRotationCommand(self, start_rotation, new_rotation)
             push_fn(cmd)
 

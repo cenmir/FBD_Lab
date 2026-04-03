@@ -105,7 +105,7 @@ class MomentCenterMarker(QGraphicsEllipseItem):
         push_fn = self._parent_item.on_push_undo
         if push_fn is not None:
             self._parent_item.set_center(old_center)
-            from commands import MoveMomentCommand
+            from fbd_lab.commands import MoveMomentCommand
             cmd = MoveMomentCommand(self._parent_item, old_center, new_center)
             push_fn(cmd)
 
@@ -185,7 +185,7 @@ class MomentArcEndpoint(QGraphicsEllipseItem):
         push_fn = self._parent_item.on_push_undo
         if push_fn is not None:
             self._parent_item.set_angles(old_start, old_span)
-            from commands import ChangeAnglesCommand
+            from fbd_lab.commands import ChangeAnglesCommand
             cmd = ChangeAnglesCommand(self._parent_item, old_start, old_span, new_start, new_span)
             push_fn(cmd)
 

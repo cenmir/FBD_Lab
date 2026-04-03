@@ -137,7 +137,24 @@ def _register_file_types():
         QMessageBox.warning(None, "Registration Failed", f"Could not write registry:\n{e}")
 
 
+def _install_exception_hook():
+    """Write unhandled exceptions to a crash log next to the exe."""
+    import traceback
+    log_path = Path(sys.executable).parent / "fbd_lab_crash.log" \
+        if getattr(sys, "frozen", False) else None
+
+    def hook(exc_type, exc_value, exc_tb):
+        text = "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
+        if log_path:
+            with open(log_path, "a", encoding="utf-8") as f:
+                f.write(f"\n{'='*60}\n{time.strftime('%Y-%m-%d %H:%M:%S')}\n{text}")
+        sys.__excepthook__(exc_type, exc_value, exc_tb)
+
+    sys.excepthook = hook
+
+
 def main():
+    _install_exception_hook()
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     parser = argparse.ArgumentParser(description="FBD Lab — Free Body Diagram Laboratory")

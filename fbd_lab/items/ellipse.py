@@ -95,7 +95,7 @@ class EllipseCornerHandle(QGraphicsEllipseItem):
         push_fn = self._parent_item.on_push_undo
         if push_fn is not None:
             self._parent_item._set_local_rect(old_rect)
-            from commands import ChangeRectCommand
+            from fbd_lab.commands import ChangeRectCommand
             cmd = ChangeRectCommand(self._parent_item, old_rect, new_rect)
             push_fn(cmd)
 
@@ -273,7 +273,7 @@ class EllipseItem(LabelPropertiesMixin, QGraphicsPathItem):
         push_fn = self.on_push_undo
         if push_fn is not None:
             self.setRotation(start_rotation)
-            from commands import ChangeRotationCommand
+            from fbd_lab.commands import ChangeRotationCommand
             cmd = ChangeRotationCommand(self, start_rotation, new_rotation)
             push_fn(cmd)
 

@@ -111,7 +111,7 @@ class CornerHandle(QGraphicsEllipseItem):
                 return
             if push_fn is not None:
                 setattr(self._parent_item, prop, old_val)
-                from commands import ChangeShapePropertyCommand
+                from fbd_lab.commands import ChangeShapePropertyCommand
                 cmd = ChangeShapePropertyCommand(
                     self._parent_item, prop, old_val, new_val, "Change Trapezoid Inset")
                 push_fn(cmd)
@@ -125,7 +125,7 @@ class CornerHandle(QGraphicsEllipseItem):
                 return
             if push_fn is not None:
                 self._parent_item._set_local_rect(old_rect)
-                from commands import ChangeRectCommand
+                from fbd_lab.commands import ChangeRectCommand
                 cmd = ChangeRectCommand(self._parent_item, old_rect, new_rect)
                 push_fn(cmd)
 
@@ -193,7 +193,7 @@ class AxisHandle(QGraphicsEllipseItem):
         push_fn = self._parent_item.on_push_undo
         if push_fn is not None:
             setattr(self._parent_item, prop, old_len)
-            from commands import ChangeShapePropertyCommand
+            from fbd_lab.commands import ChangeShapePropertyCommand
             cmd = ChangeShapePropertyCommand(
                 self._parent_item, prop, old_len, new_len,
                 f"Change {self._axis.upper()}-axis Length")
@@ -539,7 +539,7 @@ class RectangleItem(LabelPropertiesMixin, QGraphicsPathItem):
         push_fn = self.on_push_undo
         if push_fn is not None:
             self.setRotation(start_rotation)
-            from commands import ChangeRotationCommand
+            from fbd_lab.commands import ChangeRotationCommand
             cmd = ChangeRotationCommand(self, start_rotation, new_rotation)
             push_fn(cmd)
 
