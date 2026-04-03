@@ -144,40 +144,58 @@ def prompt_update(parent, current_version: str, latest_tag: str,
     if latest <= current:
         return  # up to date
 
-    msg = QMessageBox(parent)
-    msg.setWindowTitle("Update Available")
-    msg.setText(
-        f"A new version of FBD Lab is available!\n\n"
-        f"Current: v{current_version}\n"
-        f"Latest:  {latest_tag}\n\n"
-        f"Download and install the update?"
-    )
-    msg.setStandardButtons(
-        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
-    )
-    msg.setDefaultButton(QMessageBox.StandardButton.Yes)
+    is_frozen = getattr(sys, "frozen", False)
 
-    if msg.exec() != QMessageBox.StandardButton.Yes:
-        return
+    if is_frozen:
+        msg = QMessageBox(parent)
+        msg.setWindowTitle("Update Available")
+        msg.setText(
+            f"A new version of FBD Lab is available!\n\n"
+            f"Current: v{current_version}\n"
+            f"Latest:  {latest_tag}\n\n"
+            f"Download and install the update?"
+        )
+        msg.setStandardButtons(
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        msg.setDefaultButton(QMessageBox.StandardButton.Yes)
 
-    # Download using the real asset name (e.g. "FBD Lab v0.8.5.exe")
-    current_exe = Path(sys.executable)
-    tmp_path = current_exe.parent / asset_name
+        if msg.exec() != QMessageBox.StandardButton.Yes:
+            return
 
-    if not _download_with_progress(exe_url, tmp_path, parent):
-        QMessageBox.warning(parent, "Update Failed",
-                            "Download failed or was cancelled.")
-        if tmp_path.exists():
-            tmp_path.unlink()
-        return
+        # Download using the real asset name (e.g. "FBD Lab v0.8.5.exe")
+        current_exe = Path(sys.executable)
+        tmp_path = current_exe.parent / asset_name
 
-    # Replace and restart
-    try:
-        _replace_and_restart(tmp_path)
-    except Exception as e:
-        QMessageBox.warning(parent, "Update Failed",
-                            f"Could not replace the exe:\n{e}\n\n"
-                            f"The update was downloaded to:\n{tmp_path}")
+        if not _download_with_progress(exe_url, tmp_path, parent):
+            QMessageBox.warning(parent, "Update Failed",
+                                "Download failed or was cancelled.")
+            if tmp_path.exists():
+                tmp_path.unlink()
+            return
+
+        # Replace and restart
+        try:
+            _replace_and_restart(tmp_path)
+        except Exception as e:
+            QMessageBox.warning(parent, "Update Failed",
+                                f"Could not replace the exe:\n{e}\n\n"
+                                f"The update was downloaded to:\n{tmp_path}")
+    else:
+        # Running from source — tell the user to update manually
+        msg = QMessageBox(parent)
+        msg.setWindowTitle("Update Available")
+        msg.setText(
+            f"A new version of FBD Lab is available!\n\n"
+            f"Current: v{current_version}\n"
+            f"Latest:  {latest_tag}\n\n"
+            f"To update, run:\n"
+            f"  git pull && uv sync\n\n"
+            f"Or download from:\n"
+            f"  https://github.com/cenmir/FBD_Lab/releases"
+        )
+        msg.setStandardButtons(QMessageBox.StandardButton.Ok)
+        msg.exec()
 
 
 # ---------------------------------------------------------------------------
@@ -186,9 +204,6 @@ def prompt_update(parent, current_version: str, latest_tag: str,
 
 def check_for_updates(parent, current_version: str):
     """Start a background version check. If newer, prompt the user."""
-    if not getattr(sys, "frozen", False):
-        return  # only check in exe builds
-
     thread = VersionCheckThread()
 
     def on_result(latest_tag, exe_url, asset_name, release_url):
