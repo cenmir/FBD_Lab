@@ -362,6 +362,10 @@ class PinSupportItem(BaseItemProperties, FillProperties, EdgeProperties, LabelPr
         painter.setBrush(QBrush(grad))
         painter.drawRect(base_rect)
 
+        # Top edge of the base (same color as triangle outline)
+        painter.setPen(pen)
+        painter.drawLine(QPointF(-half_bw, h), QPointF(half_bw, h))
+
         painter.restore()
 
     # --- Serialization ---
