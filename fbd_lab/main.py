@@ -1217,8 +1217,8 @@ def main():
                 for w in _cs_label_widgets:
                     w.setVisible(False)
 
-        # Ellipse angle (reuse the angle spinbox)
-        if isinstance(item, EllipseItem):
+        # Angle (reuse the angle spinbox for ellipse and pin support)
+        if isinstance(item, (EllipseItem, PinSupportItem)):
             _rect_angle_label.setVisible(True)
             _rect_angle_spin.setVisible(True)
             _rect_angle_spin.setValue(item.angle_ccw)
@@ -1672,7 +1672,7 @@ def main():
     def on_rect_angle_changed(val):
         if _updating_panel:
             return
-        item = window.canvas.get_selected_rectangle() or window.canvas.get_selected_ellipse()
+        item = window.canvas.get_selected_rectangle() or window.canvas.get_selected_ellipse() or window.canvas.get_selected_pin_support()
         if item is None:
             return
         if abs(val - item.angle_ccw) < 0.05:

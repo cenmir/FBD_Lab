@@ -21,6 +21,7 @@ from fbd_lab.items.base import (
     BaseLabel, BaseItemProperties, FillProperties, EdgeProperties, LabelProperties,
     SELECTED_COLOR,
 )
+from fbd_lab.items.rotation_handle import RotationHandleItem
 
 DEFAULT_HEIGHT = 40.0       # triangle height
 DEFAULT_BASE_WIDTH = 80.0   # base rectangle width (wider than triangle)
@@ -153,12 +154,14 @@ class PinSupportItem(BaseItemProperties, FillProperties, EdgeProperties, LabelPr
         self._show_pin_hole = True
 
         self.setPos(pos)
+        self.setTransformOriginPoint(QPointF(0, self._height / 2 * 0.35))
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, True)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemSendsGeometryChanges, True)
         self.setZValue(1)
 
         self._scale_handle = _ScaleHandle(self)
         self._base_handle = _BaseWidthHandle(self)
+        self._rotation_handle = RotationHandleItem(self)
 
         self._label = BaseLabel(self)
         self._init_base_properties()
@@ -178,7 +181,7 @@ class PinSupportItem(BaseItemProperties, FillProperties, EdgeProperties, LabelPr
         return QPointF(self.pos())
 
     def _get_handles(self) -> list:
-        return [self._scale_handle, self._base_handle]
+        return [self._scale_handle, self._base_handle, self._rotation_handle]
 
     # --- Properties ---
 
@@ -211,6 +214,28 @@ class PinSupportItem(BaseItemProperties, FillProperties, EdgeProperties, LabelPr
     def center(self) -> QPointF:
         return QPointF(self.pos())
 
+    @property
+    def angle_ccw(self) -> float:
+        return -self.rotation()
+
+    @angle_ccw.setter
+    def angle_ccw(self, value: float):
+        self.setRotation(-value)
+        self.update()
+
+    # --- Rotation ---
+
+    def _on_rotation_finished(self, start_rotation: float):
+        new_rotation = self.rotation()
+        if abs(new_rotation - start_rotation) < 0.01:
+            return
+        push_fn = self.on_push_undo
+        if push_fn is not None:
+            self.setRotation(start_rotation)
+            from fbd_lab.commands import ChangeRotationCommand
+            cmd = ChangeRotationCommand(self, start_rotation, new_rotation)
+            push_fn(cmd)
+
     # --- Movement ---
 
     def move_by(self, delta: QPointF):
@@ -224,6 +249,7 @@ class PinSupportItem(BaseItemProperties, FillProperties, EdgeProperties, LabelPr
     def _set_height(self, h: float):
         self.prepareGeometryChange()
         self._height = max(MIN_SIZE, h)
+        self.setTransformOriginPoint(QPointF(0, self._height / 2 * 0.35))
         self._rebuild()
 
     def _set_base_width(self, w: float):
@@ -247,6 +273,7 @@ class PinSupportItem(BaseItemProperties, FillProperties, EdgeProperties, LabelPr
         base_h = h * BASE_HEIGHT_RATIO
         self._scale_handle.setPos(0, h)
         self._base_handle.setPos(self._base_width / 2, h + base_h / 2)
+        self._rotation_handle.update_position()
 
         self._label.update_position()
         if self.on_modified:
@@ -283,6 +310,7 @@ class PinSupportItem(BaseItemProperties, FillProperties, EdgeProperties, LabelPr
         is_sel = self.isSelected()
         self._scale_handle.setVisible(is_sel)
         self._base_handle.setVisible(is_sel)
+        self._rotation_handle.setVisible(is_sel)
         self._label.update_color(is_sel)
 
         h = self._height
@@ -346,6 +374,7 @@ class PinSupportItem(BaseItemProperties, FillProperties, EdgeProperties, LabelPr
         d["height"] = self._height
         d["base_width"] = self._base_width
         d["show_pin_hole"] = self._show_pin_hole
+        d["rotation"] = self.rotation()
         return d
 
     @classmethod
@@ -358,5 +387,6 @@ class PinSupportItem(BaseItemProperties, FillProperties, EdgeProperties, LabelPr
         item._height = data.get("height", DEFAULT_HEIGHT)
         item._base_width = data.get("base_width", DEFAULT_BASE_WIDTH)
         item._show_pin_hole = data.get("show_pin_hole", True)
+        item.setRotation(data.get("rotation", 0.0))
         item._rebuild()
         return item
