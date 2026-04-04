@@ -18,7 +18,8 @@ from PyQt6.QtWidgets import (
 from fbd_lab.items import (
     VectorItem, PointItem, DirectionItem, LineItem, MomentItem,
     RectangleItem, PolygonItem, EllipseItem, TextItem, SpringItem,
-    SquiggleItem, CogItem, PinSupportItem, ITEM_REGISTRY,
+    SquiggleItem, CogItem, PinSupportItem, RollerSupportItem,
+    LabelProperties, ITEM_REGISTRY,
 )
 from fbd_lab.commands import (
     AddItemCommand, DeleteItemCommand, MoveItemCommand,
@@ -81,6 +82,7 @@ class ToolMode(Enum):
     SQUIGGLE = auto()
     COG = auto()
     PIN_SUPPORT = auto()
+    ROLLER_SUPPORT = auto()
 
 
 class FBDCanvas(QGraphicsView):
@@ -431,9 +433,15 @@ class FBDCanvas(QGraphicsView):
     def get_selected_pin_support(self):       return self._get_selected_item(PinSupportItem)
     def clear_pin_supports(self):             self._clear_items('pin_supports')
 
+    def add_roller_support(self, rs):         self._add_item('roller_supports', rs)
+    def remove_roller_support(self, rs):      self._remove_item('roller_supports', rs)
+    def get_roller_supports(self):            return self._get_items('roller_supports')
+    def get_roller_supports_data(self):       return self._get_items_data('roller_supports')
+    def get_selected_roller_support(self):    return self._get_selected_item(RollerSupportItem)
+    def clear_roller_supports(self):          self._clear_items('roller_supports')
+
     def get_selected_any(self):
         """Return any single selected FBD item, or None."""
-        from fbd_lab.items.base import LabelProperties
         return self._get_selected_item(LabelProperties)
 
     def clear_all(self):
@@ -461,6 +469,7 @@ class FBDCanvas(QGraphicsView):
     def set_squiggles_visible(self, visible):  self._set_type_visible('squiggles', visible)
     def set_cogs_visible(self, visible):       self._set_type_visible('cogs', visible)
     def set_pin_supports_visible(self, visible): self._set_type_visible('pin_supports', visible)
+    def set_roller_supports_visible(self, visible): self._set_type_visible('roller_supports', visible)
 
     # --- Snapping ---
 
@@ -672,6 +681,22 @@ class FBDCanvas(QGraphicsView):
                 self.set_tool(ToolMode.SELECT)
                 return
 
+            # Roller support creation mode (single click to place)
+            if self._tool == ToolMode.ROLLER_SUPPORT:
+                scene_pos = self.mapToScene(event.pos())
+                rs = RollerSupportItem(scene_pos)
+                if self._has_undo_stack():
+                    cmd = AddItemCommand(self, rs, 'roller_supports')
+                    self._undo_stack.push(cmd)
+                else:
+                    self.add_roller_support(rs)
+                    self.modified.emit()
+                self._scene.clearSelection()
+                rs.setSelected(True)
+                self.selection_changed.emit()
+                self.set_tool(ToolMode.SELECT)
+                return
+
             # Text creation mode (single click to place)
             if self._tool == ToolMode.TEXT:
                 scene_pos = self.mapToScene(event.pos())
@@ -700,7 +725,7 @@ class FBDCanvas(QGraphicsView):
                         self._scene.clearSelection()
                         item.setSelected(True)
                     return
-                if isinstance(item, (VectorItem, PointItem, DirectionItem, LineItem, RectangleItem, PolygonItem, EllipseItem, TextItem, SpringItem, SquiggleItem, CogItem, PinSupportItem)):
+                if isinstance(item, LabelProperties):
                     self._dragging_item = item
                     self._drag_anchor = item.drag_anchor()
                     self._drag_last = scene_pos

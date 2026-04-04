@@ -26,6 +26,7 @@ from fbd_lab.items import (
     TwoEndpointItem, VectorItem, PointItem, DirectionItem, LineItem,
     MomentItem, RectangleItem, PolygonItem, EllipseItem,
     TextItem, CogItem, SpringItem, SquiggleItem, PinSupportItem,
+    RollerSupportItem,
 )
 from fbd_lab.commands import (
     ResizeVectorCommand, ChangeLabelTextCommand, ChangeLabelVisibilityCommand,
@@ -688,6 +689,7 @@ def main():
         (window.squiggleToolButton,  ToolMode.SQUIGGLE),
         (window.cogToolButton,       ToolMode.COG),
         (window.pinSupportToolButton, ToolMode.PIN_SUPPORT),
+        (window.rollerSupportToolButton, ToolMode.ROLLER_SUPPORT),
     ]
     for btn, mode in _tool_button_map:
         btn.toggled.connect(_make_tool_toggle(mode))
@@ -714,6 +716,7 @@ def main():
             ToolMode.SQUIGGLE: "Squiggle creation mode — click and drag to draw",
             ToolMode.COG: "COG creation mode — click to place center of gravity",
             ToolMode.PIN_SUPPORT: "Pin support mode — click to place pin (hinge) support",
+            ToolMode.ROLLER_SUPPORT: "Roller support mode — click to place roller support",
         }
         window.statusbar.showMessage(status_msgs.get(mode, "Ready"))
 
@@ -772,6 +775,9 @@ def main():
     # "H" shortcut to toggle Pin Support mode
     shortcut_h = QShortcut(QKeySequence("H"), window)
     shortcut_h.activated.connect(lambda: window.pinSupportToolButton.toggle())
+
+    shortcut_j = QShortcut(QKeySequence("J"), window)
+    shortcut_j.activated.connect(lambda: window.rollerSupportToolButton.toggle())
 
     # Delete action
     window.actionDelete.triggered.connect(window.canvas.delete_selected)
@@ -1183,6 +1189,8 @@ def main():
                 w.setVisible(True)
             _show_pin_hole_check.setChecked(item.show_pin_hole)
 
+        # RollerSupportItem has no extra type-specific widgets
+
         # --- Mixin-based widget groups ---
 
         # Stroke color/opacity (items with user-visible stroke — excludes shapes, lines, cogs)
@@ -1218,7 +1226,7 @@ def main():
                     w.setVisible(False)
 
         # Angle (reuse the angle spinbox for ellipse and pin support)
-        if isinstance(item, (EllipseItem, PinSupportItem)):
+        if isinstance(item, (EllipseItem, PinSupportItem, RollerSupportItem)):
             _rect_angle_label.setVisible(True)
             _rect_angle_spin.setVisible(True)
             _rect_angle_spin.setValue(item.angle_ccw)
@@ -1672,7 +1680,7 @@ def main():
     def on_rect_angle_changed(val):
         if _updating_panel:
             return
-        item = window.canvas.get_selected_rectangle() or window.canvas.get_selected_ellipse() or window.canvas.get_selected_pin_support()
+        item = window.canvas.get_selected_rectangle() or window.canvas.get_selected_ellipse() or window.canvas.get_selected_pin_support() or window.canvas.get_selected_roller_support()
         if item is None:
             return
         if abs(val - item.angle_ccw) < 0.05:

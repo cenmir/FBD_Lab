@@ -218,6 +218,16 @@
               </property>
              </widget>
             </item>
+            <item row="6" column="1">
+             <widget class="QPushButton" name="rollerSupportToolButton">
+              <property name="text">
+               <string>Roller Support (J)</string>
+              </property>
+              <property name="checkable">
+               <bool>true</bool>
+              </property>
+             </widget>
+            </item>
            </layout>
           </widget>
          </item>
